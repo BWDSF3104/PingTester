@@ -125,65 +125,12 @@ namespace PingTester
             settings.UdpServer.Start(settings.Port);
         }
 
+        // [2026-04-12 修正] TCP/psping サーバ起動処理を廃止。UDP (StartWaitPing) に統一。
+        [Obsolete("TCP/psping は廃止。StartWaitPing を使用してください。")]
         private static bool StartWaitPingTCP(Settings settings)
         {
-            Console.WriteLine("ファイアウォール設定追加");
-            FireWallSetting();
-            try
-            {
-                Console.WriteLine("ポートマッピング追加");
-                WriteLog("ポートマッピング追加");
-                if (settings.Napt == null) return false;
-
-                IPAddress localIP = settings.Napt.GetLocalIPAddress();
-                if (localIP == null)
-                {
-                    WriteLog("ローカルIPアドレス取得失敗。ポートマッピングをスキップ。");
-                    System.Windows.MessageBox.Show("ローカルIPアドレスが取得できませんでした。");
-                    return false;
-                }
-
-                // leaseDuration を 3600(1時間) など有限値に変更
-                settings.Napt.AddPortMapping(
-                    null,
-                    (ushort)settings.Port,
-                    "TCP",
-                    (ushort)settings.Port,
-                    localIP,
-                    true,
-                    "PingTester Port mapping",
-                    3600
-                );
-                ShowPortMapping(settings);
-            }
-            catch (Exception ex)
-            {
-                System.Windows.MessageBox.Show(ex.Message);
-                WriteLog(ex.Message + "\n" + ex.StackTrace);
-            }
-            try
-            {
-                Process process = new Process()
-                {
-                    StartInfo = new ProcessStartInfo()
-                    {
-                        FileName = "psping.exe",
-                        Arguments = string.Format("-f -s 0.0.0.0:{0}", settings.Port)
-                    }
-                };
-                settings.PsPingServer = process;
-
-                WriteLog("Ping受信待機開始処理");
-                process.Start();
-                WriteLog("Ping受信待機開始処理終了");
-            }
-            catch (Exception ex)
-            {
-                System.Windows.MessageBox.Show(ex.Message);
-                WriteLog(ex.Message + "\n" + ex.StackTrace);
-            }
-
-            return true;
+            WriteLog("StartWaitPingTCP: TCP/psping 廃止のため処理なし");
+            return false;
         }
 
         // EndWaitPing 内でUDPの待機停止
@@ -193,22 +140,11 @@ namespace PingTester
             RemoveUdpPortMapping(settings);
         }
 
+        // [2026-04-12 修正] TCP/psping サーバ停止処理を廃止。UDP (EndWaitPing) に統一。
+        [Obsolete("TCP/psping は廃止。EndWaitPing を使用してください。")]
         public static void EndWaitPingTCP(Settings settings)
         {
-            try
-            {
-                Console.WriteLine("ポートマッピング削除");
-                settings.Napt?.DeletePortMapping(null, (ushort)settings.Port, "TCP");
-                ShowPortMapping(settings);
-
-                settings.PsPingServer.CloseMainWindow();
-                MyProcessKill();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-                WriteLog(ex.Message + "\n" + ex.StackTrace);
-            }
+            WriteLog("EndWaitPingTCP: TCP/psping 廃止のため処理なし");
         }
 
         // StartSendPing 内の psping 呼び出しを置き換え
@@ -280,6 +216,7 @@ namespace PingTester
             }
         }
 
+        // [2026-04-12 修正] psping.exe プロセス起動・出力解析を MeasureUdpPing に置き換え
         public static void StartSendPing(Settings settings)
         {
             settings.PossibleExecute = false;
@@ -288,100 +225,34 @@ namespace PingTester
             {
                 int index = -1;
                 var results = settings.IPAndNames.Select(ian =>
-                 {
-                     index++;
-                     string args = string.Format("-n {2} {0}:{1}", IPAddress.Parse(ian.IP), settings.Port, settings.NumberOfSend);
-                     Console.WriteLine("PsPing実行:" + args);
-                     settings.Title = string.Format("PingTester(実行中[{1}]:{0})", args, ian.Name);
-                     Process process = new Process()
-                     {
-                         StartInfo = new ProcessStartInfo()
-                         {
-                             FileName = "psping.exe",
-                             Arguments = args,
-                             UseShellExecute = false,
-                             CreateNoWindow = true,
-                             RedirectStandardOutput = true
-                         }
-                     };
-                     process.Start();
+                {
+                    index++;
 
-                     string tmpText = string.Empty;
-                     // リダイレクトがあったときに呼ばれるイベントハンドラ
-                     process.OutputDataReceived +=
-                     new DataReceivedEventHandler(delegate (object obj, DataReceivedEventArgs dargs)
-                     {
-                         if (!string.IsNullOrEmpty(dargs.Data))
-                         {
-                             tmpText = dargs.Data;
-                             settings.Title = string.Format("PingTester(実行中[{1}]:{0}):{2}", args, ian.Name, tmpText);
-                         }
-                     });
+                    // [2026-04-12 修正] psping.exe 呼び出しを UDP Ping 計測に置き換え
+                    WriteLog(string.Format("UDP Ping実行: {0}:{1} x{2}", ian.IP, settings.Port, settings.NumberOfSend));
+                    settings.Title = string.Format("PingTester(実行中[{0}]:{1}:{2})", ian.Name, ian.IP, settings.Port);
 
-                     // 非同期ストリーム読み取りの開始
-                     // (C#2.0から追加されたメソッド)
-                     process.BeginOutputReadLine();
+                    IPAndName resultIAN = MeasureUdpPing(ian, settings);
 
-                     process.WaitForExit();
-                     //string[] processOutput = process.StandardOutput.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
-                     //string lastResult = processOutput[processOutput.Length - 1];
-                     string lastResult = tmpText;
-                     Console.WriteLine("LastResult: " + lastResult);
-                     IPAndName resultIAN = new IPAndName()
-                     {
-                         IP = ian.IP,
-                         Name = ian.Name,
-                         PrevAverage = ian.Average,
-                         AllAverage = ian.AllAverage,
-                         Count = ian.Count
-                     };
-                     if (lastResult == "リモート コンピューターによりネットワーク接続が拒否されました。" | lastResult == "タイムアウト期間が経過したため、この操作は終了しました。")
-                     {
-                         return resultIAN;
-                     }
-                     else
-                     {
-                         double[] doubles = lastResult.Split(',').Select(splited =>
-                          {
-                              System.Text.RegularExpressions.Regex regex = new System.Text.RegularExpressions.Regex(@"[^0-9\.]");
-                              if (double.TryParse(regex.Replace(splited, ""), out double parsed))
-                              {
-                                  return parsed;
-                              }
-                              else
-                              {
-                                  return 0.0;
-                              }
-                          }).ToArray();
+                    // [2026-04-12 修正] 計測成功時のみ途中経過をリストに反映
+                    if (resultIAN.Average > 0)
+                    {
+                        UpdateIPAndNames(settings, index, resultIAN);
+                    }
 
-                         if (doubles.Length > 2)
-                         {
-                             resultIAN.Min = doubles[0];
-                             resultIAN.Max = doubles[1];
-                             resultIAN.Average = doubles[2];
-                             if (resultIAN.Count == 0)
-                             {
-                                 resultIAN.AllAverage = resultIAN.Average;
-                             }
-                             if (resultIAN.Count > 0)
-                             {
-                                 double newAllAverage = (resultIAN.AllAverage * resultIAN.Count + resultIAN.Average * settings.NumberOfSend) / (resultIAN.Count + settings.NumberOfSend);
-                                 Console.WriteLine("総平均値計算:" + string.Format("({0} * {1} + {2} * {3}) / ({1} + {3}))", resultIAN.AllAverage, resultIAN.Count, resultIAN.Average, settings.NumberOfSend));
-                                 resultIAN.AllAverage = newAllAverage;
-                             }
-                             resultIAN.Count += settings.NumberOfSend;
-                         }
-                         UpdateIPAndNames(settings, index, resultIAN);
-                         return resultIAN;
-                     }
-                 }).ToArray();
-                System.Collections.ObjectModel.ObservableCollection<IPAndName> iPAndNames = new System.Collections.ObjectModel.ObservableCollection<IPAndName>(results);
-                results.Select(res =>
+                    return resultIAN;
+                }).ToArray();
+
+                System.Collections.ObjectModel.ObservableCollection<IPAndName> iPAndNames =
+                    new System.Collections.ObjectModel.ObservableCollection<IPAndName>(results);
+
+                foreach (var res in results)
                 {
                     string text = string.Format("Min:{0}ms Max:{1}ms Average:{2}ms", res.Min, res.Max, res.Average);
                     Console.WriteLine(text);
-                    return text;
-                }).ToArray();
+                    WriteLog(text);
+                }
+
                 settings.IPAndNames = iPAndNames;
                 settings.Title = "PingTester(実行終了)";
                 settings.PossibleExecute = true;
@@ -474,18 +345,16 @@ namespace PingTester
             }
         }
 
+
+        // [2026-04-12 修正] UDP Ping に移行したため psping.exe のファイアウォール設定を削除
         private static void FireWallSetting()
         {
             System.Reflection.Assembly myAssembly = System.Reflection.Assembly.GetEntryAssembly();
             string path = myAssembly.Location;
-            string dirPath = AppDomain.CurrentDomain.BaseDirectory;
-            string psPingPath = dirPath + "psping.exe";
             INetFwPolicy2 firewallPolicy = (INetFwPolicy2)Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
 
             WriteLog("PingTesterファイアウォール設定");
             FireWallRuleAdd("PingTester", path, firewallPolicy);
-            WriteLog("PsPingファイアウォール設定");
-            FireWallRuleAdd("PsPing", psPingPath, firewallPolicy);
         }
 
         private static void UpdateIPAndNames(Settings settings, int index, IPAndName iPAndName)
@@ -579,35 +448,11 @@ namespace PingTester
             }
         }
 
+        // [2026-04-12 修正] UDP Ping に移行したため psping.exe プロセス終了処理を廃止
+        // EndWaitPingTCP から呼ばれていた名残。TCP/psping 廃止により何もしない。
         public static void MyProcessKill()
         {
-            Process[] myProcesses;
-            TryMethod(() =>
-            {
-                myProcesses = Process.GetProcessesByName("psping.exe");
-                if (myProcesses.Length > 0)
-                {
-                    foreach (Process gotProcess in myProcesses)
-                    {
-                        string processName = gotProcess.ProcessName;
-                        Console.WriteLine("プロセス:" + processName);
-                        TryMethod(() =>
-                        {
-                            Console.WriteLine("停止処理(CloseMainWindow()):" + processName);
-                            gotProcess.CloseMainWindow();
-                            gotProcess.WaitForExit(5000);
-                        });
-                        Console.WriteLine("停止処理(Kill()):" + processName);
-                        TryMethod(() => gotProcess.Kill());
-
-                        Console.WriteLine("停止:" + processName);
-                    }
-                }
-                else
-                {
-                    Console.WriteLine("操作なし:myProcess停止済み");
-                }
-            });
+            WriteLog("MyProcessKill: psping.exe 廃止のため処理なし");
         }
 
         public static void SaveSetting(Settings settings)
