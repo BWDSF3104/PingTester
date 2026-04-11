@@ -100,6 +100,8 @@ namespace PingTester
                 RaisePropertyChanged(nameof(PossibleExecute));
             }
         }
+
+        public UdpPingServer UdpServer { get; set; }
     }
 
     public class IPAndName

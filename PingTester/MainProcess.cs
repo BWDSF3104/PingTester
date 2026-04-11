@@ -1,15 +1,16 @@
-﻿using System;
+﻿using NetFwTypeLib;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Xml.Linq;
-using NetFwTypeLib;
 
 namespace PingTester
 {
@@ -118,18 +119,28 @@ namespace PingTester
         {
             Console.WriteLine("ファイアウォール設定追加");
             FireWallSetting();
+            AddUdpPortMapping(settings); // UDPポートマッピング追加
+
+            settings.UdpServer = new UdpPingServer();
+            settings.UdpServer.Start(settings.Port);
+        }
+
+        private static bool StartWaitPingTCP(Settings settings)
+        {
+            Console.WriteLine("ファイアウォール設定追加");
+            FireWallSetting();
             try
             {
                 Console.WriteLine("ポートマッピング追加");
                 WriteLog("ポートマッピング追加");
-                if (settings.Napt == null) return;
+                if (settings.Napt == null) return false;
 
                 IPAddress localIP = settings.Napt.GetLocalIPAddress();
                 if (localIP == null)
                 {
                     WriteLog("ローカルIPアドレス取得失敗。ポートマッピングをスキップ。");
                     System.Windows.MessageBox.Show("ローカルIPアドレスが取得できませんでした。");
-                    return;
+                    return false;
                 }
 
                 // leaseDuration を 3600(1時間) など有限値に変更
@@ -171,9 +182,18 @@ namespace PingTester
                 System.Windows.MessageBox.Show(ex.Message);
                 WriteLog(ex.Message + "\n" + ex.StackTrace);
             }
+
+            return true;
         }
 
+        // EndWaitPing 内でUDPの待機停止
         public static void EndWaitPing(Settings settings)
+        {
+            settings.UdpServer?.Stop();
+            RemoveUdpPortMapping(settings);
+        }
+
+        public static void EndWaitPingTCP(Settings settings)
         {
             try
             {
@@ -188,6 +208,75 @@ namespace PingTester
             {
                 Console.WriteLine(ex.Message);
                 WriteLog(ex.Message + "\n" + ex.StackTrace);
+            }
+        }
+
+        // StartSendPing 内の psping 呼び出しを置き換え
+        private static IPAndName MeasureUdpPing(IPAndName ian, Settings settings)
+        {
+            var (min, max, avg) = UdpPingClient.Ping(ian.IP, settings.Port, settings.NumberOfSend);
+
+            IPAndName result = new IPAndName
+            {
+                IP = ian.IP,
+                Name = ian.Name,
+                PrevAverage = ian.Average,
+                Count = ian.Count,
+                AllAverage = ian.AllAverage
+            };
+
+            if (min < 0) return result; // 全タイムアウト
+
+            result.Min = min;
+            result.Max = max;
+            result.Average = avg;
+
+            if (result.Count == 0)
+                result.AllAverage = avg;
+            else
+            {
+                result.AllAverage = (result.AllAverage * result.Count + avg * settings.NumberOfSend)
+                                    / (result.Count + settings.NumberOfSend);
+            }
+            result.Count += settings.NumberOfSend;
+
+            return result;
+        }
+
+        private static void AddUdpPortMapping(Settings settings)
+        {
+            try
+            {
+                IPAddress localIP = settings.Napt?.GetLocalIPAddress();
+                if (settings.Napt == null || localIP == null) return;
+
+                settings.Napt.AddPortMapping(
+                    null,
+                    (ushort)settings.Port,
+                    "UDP", // ← UDPに変更
+                    (ushort)settings.Port,
+                    localIP,
+                    true,
+                    "PingTester UDP mapping",
+                    3600
+                );
+            }
+            catch (Exception ex)
+            {
+                WriteLog("UDPポートマッピング追加失敗: " + ex.Message);
+            }
+        }
+        private static void RemoveUdpPortMapping(Settings settings)
+        {
+            try
+            {
+                if (settings.Napt == null) return;
+
+                settings.Napt.DeletePortMapping(null, (ushort)settings.Port, "UDP");
+            }
+            catch (Exception ex)
+            {
+                WriteLog("UDPポートマッピング削除失敗: " + ex.Message);
             }
         }
 
