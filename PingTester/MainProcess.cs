@@ -122,7 +122,27 @@ namespace PingTester
             {
                 Console.WriteLine("ポートマッピング追加");
                 WriteLog("ポートマッピング追加");
-                settings.Napt?.AddPortMapping(null, (ushort)settings.Port, "TCP", (ushort)settings.Port, settings.Napt?.GetLocalIPAddress(), true, "PingTester Port mapping", 0);
+                if (settings.Napt == null) return;
+
+                IPAddress localIP = settings.Napt.GetLocalIPAddress();
+                if (localIP == null)
+                {
+                    WriteLog("ローカルIPアドレス取得失敗。ポートマッピングをスキップ。");
+                    System.Windows.MessageBox.Show("ローカルIPアドレスが取得できませんでした。");
+                    return;
+                }
+
+                // leaseDuration を 3600(1時間) など有限値に変更
+                settings.Napt.AddPortMapping(
+                    null,
+                    (ushort)settings.Port,
+                    "TCP",
+                    (ushort)settings.Port,
+                    localIP,
+                    true,
+                    "PingTester Port mapping",
+                    3600
+                );
                 ShowPortMapping(settings);
             }
             catch (Exception ex)
