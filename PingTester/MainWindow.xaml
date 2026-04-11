@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:PingTester"
         mc:Ignorable="d"
         Title="{Binding Title}" Height="650" Width="900" Closing="Window_Closing" Loaded="Window_Loaded">
-    <Grid>
+    <Grid Margin="2,0,0,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition/>
@@ -42,6 +42,16 @@
                     <GridView>
                         <GridViewColumn Header="名前" DisplayMemberBinding="{Binding Name}"/>
                         <GridViewColumn Header="IPアドレス" DisplayMemberBinding="{Binding IP}"/>
+                        <!-- [2026-04-12 追加] 相手の外部ポート入力列 -->
+                        <GridViewColumn Header="外部ポート" Width="80">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBox Width="68"
+                                 Text="{Binding ExternalPort, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 PreviewTextInput="ExternalPortBox_PreviewTextInput"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
                     </GridView>
                 </ListView.View>
             </ListView>

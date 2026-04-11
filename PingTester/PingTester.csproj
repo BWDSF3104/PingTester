@@ -71,6 +71,7 @@
       <DependentUpon>PortSetting.xaml</DependentUpon>
     </Compile>
     <Compile Include="Settings.cs" />
+    <Compile Include="StunClient.cs" />
     <Compile Include="UdpPingClient.cs" />
     <Compile Include="UdpPingServer.cs" />
     <Compile Include="UPnPWanService.cs" />

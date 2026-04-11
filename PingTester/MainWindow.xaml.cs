@@ -165,5 +165,11 @@ namespace PingTester
                 scanButton.Content = "停止";
             }
         }
+
+        // [2026-04-12 追加] 外部ポート列は数字のみ入力可能にする
+        private void ExternalPortBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            e.Handled = !System.Text.RegularExpressions.Regex.IsMatch(e.Text, "^[0-9]+$");
+        }
     }
 }

@@ -107,6 +107,8 @@ namespace PingTester
         public string IP { get; set; }
         //public IPAddress IPAddress { get; set; }
         public string Name { get; set; }
+        // [2026-04-12 追加] 相手の外部ポート番号（UDPホールパンチング用）
+        public int ExternalPort { get; set; }
         public double Average { get; set; }
         public double Max { get; set; }
         public double Min { get; set; }

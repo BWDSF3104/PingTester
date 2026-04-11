@@ -10,6 +10,7 @@ using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 
 namespace PingTester
@@ -48,22 +49,28 @@ namespace PingTester
                 {
                     string[] ipAndNamesStrArray = ipAndNamesStr.Split(new string[] { "\t" }, StringSplitOptions.RemoveEmptyEntries);
                     var selectResult = ipAndNamesStrArray.Select(tmps =>
-                     {
-                         Console.WriteLine(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
-                         WriteLog(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
-                         string[] ipAndNameSplited = tmps.Split(',');
-                         if (ipAndNameSplited.Length > 1)
-                         {
-                             IPAndName iPAndName = new IPAndName
-                             {
-                                 IP = ipAndNameSplited[0],
-                                 Name = ipAndNameSplited[1]
-                             };
-                             iPAndNames.Add(iPAndName);
-                             return iPAndName;
-                         }
-                         return null;
-                     }).ToArray();
+                    {
+                        Console.WriteLine(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
+                        WriteLog(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
+                        string[] ipAndNameSplited = tmps.Split(',');
+                        if (ipAndNameSplited.Length > 1)
+                        {
+                            // [2026-04-12 修正] 外部ポートを3番目の要素として読み込む
+                            int externalPort = 0;
+                            if (ipAndNameSplited.Length > 2)
+                                int.TryParse(ipAndNameSplited[2], out externalPort);
+
+                            IPAndName iPAndName = new IPAndName
+                            {
+                                IP = ipAndNameSplited[0],
+                                Name = ipAndNameSplited[1],
+                                ExternalPort = externalPort
+                            };
+                            iPAndNames.Add(iPAndName);
+                            return iPAndName;
+                        }
+                        return null;
+                    }).ToArray();
                 }
                 settings.IPAndNames = iPAndNames;
 
@@ -125,7 +132,37 @@ namespace PingTester
         {
             Console.WriteLine("ファイアウォール設定追加");
             FireWallSetting();
-            AddUdpPortMapping(settings); // UDPポートマッピング追加
+
+            // [2026-04-12 修正] STUN で外部エンドポイント取得を試み、失敗時は UPnP にフォールバック
+            Task.Run(async () =>
+            {
+                bool stunSuccess = false;
+                try
+                {
+                    WriteLog("STUN: 外部エンドポイント取得中...");
+                    IPEndPoint externalEP = await StunClient.GetExternalEndPointAsync(settings.Port);
+                    if (externalEP != null)
+                    {
+                        stunSuccess = true;
+                        WriteLog($"STUN: 成功 → 外部エンドポイント {externalEP}");
+                        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                            settings.GIPStr = externalEP.Address.ToString());
+                    }
+                    else
+                    {
+                        WriteLog("STUN: 全サーバ失敗。UPnP にフォールバック");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("STUN: 例外発生。UPnP にフォールバック: " + ex.Message);
+                }
+
+                if (!stunSuccess)
+                {
+                    AddUdpPortMapping(settings);
+                }
+            });
 
             settings.UdpServer = new UdpPingServer();
             settings.UdpServer.Start(settings.Port);
@@ -430,7 +467,8 @@ namespace PingTester
                 for (int index = 0; index < settings.IPAndNames.Count; index++)
                 {
                     IPAndName ian = settings.IPAndNames[index];
-                    ipAndNamesBuilder.Append(string.Format("{0},{1}", ian.IP, ian.Name));
+                    // [2026-04-12 修正] 外部ポートを3番目の要素として保存
+                    ipAndNamesBuilder.Append(string.Format("{0},{1},{2}", ian.IP, ian.Name, ian.ExternalPort));
                     if (index < settings.IPAndNames.Count - 1)
                     {
                         ipAndNamesBuilder.Append("\t");
