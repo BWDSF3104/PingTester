@@ -59,7 +59,11 @@
         </Grid>
 
         <Grid Grid.Column="1">
-            <ListView DataContext="{Binding IPAndNames}" ItemsSource="{Binding Mode=OneWay}" Grid.Row="1">
+            <Grid.RowDefinitions>
+                <RowDefinition/>
+                <RowDefinition Height="150"/>
+            </Grid.RowDefinitions>
+            <ListView DataContext="{Binding IPAndNames}" ItemsSource="{Binding Mode=OneWay}">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="名前" DisplayMemberBinding="{Binding Name}"/>
@@ -72,6 +76,11 @@
                     </GridView>
                 </ListView.View>
             </ListView>
+
+            <Grid Grid.Row="1">
+                <!--ログ表示領域作成予定-->
+            </Grid>
         </Grid>
+
     </Grid>
 </Window>
