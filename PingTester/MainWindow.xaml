@@ -78,7 +78,20 @@
             </ListView>
 
             <Grid Grid.Row="1">
-                <!--ログ表示領域作成予定-->
+                <!-- [2026-04-12 追加] ログ表示領域。MainProcess.LogEntries に新しいログが先頭挿入される -->
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition/>
+                </Grid.RowDefinitions>
+                <TextBlock Text="ログ" FontWeight="Bold" Margin="4,2"/>
+                <ListBox Grid.Row="1"
+             ItemsSource="{x:Static local:MainProcess.LogEntries}"
+             FontFamily="Consolas"
+             FontSize="11"
+             VirtualizingPanel.IsVirtualizing="True"
+             VirtualizingPanel.VirtualizationMode="Recycling"
+             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+             ScrollViewer.VerticalScrollBarVisibility="Auto"/>
             </Grid>
         </Grid>
 

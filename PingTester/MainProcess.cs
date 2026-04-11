@@ -18,6 +18,10 @@ namespace PingTester
     {
         static StreamWriter LogSW;
 
+        // [2026-04-12 追加] UIログ表示用エントリ一覧。新しいログが先頭に挿入される
+        public static System.Collections.ObjectModel.ObservableCollection<string> LogEntries { get; }
+            = new System.Collections.ObjectModel.ObservableCollection<string>();
+
         public static Settings ReadSettings()
         {
             Settings settings = new Settings();
@@ -29,14 +33,14 @@ namespace PingTester
                     port = 12345;
                 }
                 settings.Port = port;
-                WriteLog("読込使用ポート:" + port);
+                WriteLog("【設定ファイル】読込使用ポート:" + port);
 
                 if (!int.TryParse(element.Element("Send").Value, out int send))
                 {
                     send = 10;
                 }
                 settings.NumberOfSend = send;
-                WriteLog("読込Ping送信回数:" + send);
+                WriteLog("【設定ファイル】読込Ping送信回数:" + send);
 
                 string ipAndNamesStr = element.Element("IP").Value;
                 System.Collections.ObjectModel.ObservableCollection<IPAndName> iPAndNames = new System.Collections.ObjectModel.ObservableCollection<IPAndName>();
@@ -45,8 +49,8 @@ namespace PingTester
                     string[] ipAndNamesStrArray = ipAndNamesStr.Split(new string[] { "\t" }, StringSplitOptions.RemoveEmptyEntries);
                     var selectResult = ipAndNamesStrArray.Select(tmps =>
                      {
-                         Console.WriteLine(tmps);
-                         WriteLog(tmps);
+                         Console.WriteLine(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
+                         WriteLog(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
                          string[] ipAndNameSplited = tmps.Split(',');
                          if (ipAndNameSplited.Length > 1)
                          {
@@ -74,11 +78,15 @@ namespace PingTester
                 IPAddress extIP = null;
                 if (napt != null)
                 {
-                    WriteLog("ルータ取得");
+                    WriteLog("ルータ情報取得成功");
                     settings.Napt = napt;
                     extIP = napt.GetExternalIPAddress();
                     settings.GIPStr = extIP?.ToString();
-                    WriteLog("グローバルIP:" + extIP);
+                    WriteLog("【ルータ情報】グローバルIP:" + extIP);
+                }
+                else
+                {
+                    WriteLog("ルータ情報取得失敗");
                 }
             }
             catch (Exception ex)
@@ -94,10 +102,9 @@ namespace PingTester
         {
             try
             {
-                Console.WriteLine("現在のポートマッピングs");
-                WriteLog("現在のポートマッピングs");
+                Console.WriteLine("現在のポートマッピング情報");
                 StringBuilder stringBuilder = new StringBuilder();
-                stringBuilder.Append("ポートマッピング:\r\n");
+                stringBuilder.Append("【ポートマッピング情報】:\r\n");
                 foreach (var e in settings.Napt?.GetGenericPortMappingEntries())
                 {
                     Console.WriteLine("[{0}] {1}:{2} -> {3}:{4} : {5}", e.Protocol, settings.Napt.GetExternalIPAddress(), e.ExternalPort, e.InternalClient, e.InternalPort, e.PortMappingDescription);
@@ -462,10 +469,19 @@ namespace PingTester
 
         public static void WriteLog(string text)
         {
+            // [2026-04-12 修正] ファイルログに加え、UIログ表示領域にも追記
             lock (LogSW)
             {
                 LogSW?.WriteLine(text);
             }
+            string entry = string.Format("[{0:HH:mm:ss}] {1}", DateTime.Now, text);
+            System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+            {
+                // 新しいログを先頭に挿入し、最大500件で古いものを削除
+                LogEntries.Insert(0, entry);
+                if (LogEntries.Count > 500)
+                    LogEntries.RemoveAt(LogEntries.Count - 1);
+            });
         }
 
         private static bool nowScan = false;

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Windows;
@@ -23,7 +24,7 @@ namespace PingTester
 
         public MainWindow()
         {
-            MainProcess.WriteLog("初期設定中メッセージ表示");
+            Debug.WriteLine("初期設定中メッセージ表示");
             MessageWindow messageWindow = new MessageWindow("初期設定中...");
             messageWindow.Dispatcher.Invoke(new Action(() => { messageWindow.Show(); }));
             InitializeComponent();
@@ -31,7 +32,7 @@ namespace PingTester
             this.DataContext = settings;
             MainProcess.StartWaitPing(settings);
             messageWindow.Dispatcher.Invoke(new Action(() => { messageWindow.Close(); }));
-            MainProcess.WriteLog("初期設定中メッセージ表示終了");
+            Debug.WriteLine("初期設定中メッセージ表示終了");
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
