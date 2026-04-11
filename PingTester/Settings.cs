@@ -66,8 +66,6 @@ namespace PingTester
             IPAndNames = tmps;
         }
 
-        public Process PsPingServer { get; set; }
-
         private string _Title = "PingTester";
         public string Title
         {

@@ -8,7 +8,7 @@
         Title="ポート番号を入力" Height="150" Width="200">
     <Grid>
         <StackPanel VerticalAlignment="Center">
-            <TextBlock Text="1から65535までの整数値を入力"/>
+            <TextBlock Text="{Binding MessageText}"/>
             <TextBox x:Name="portBox" Margin="0,0,0,10"/>
             <Button x:Name="okButton" Content="OK" Click="OkButton_Click"/>
         </StackPanel>

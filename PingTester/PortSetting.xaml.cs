@@ -25,11 +25,15 @@ namespace PingTester
         private bool _SettingFinished = false;
         public bool SettingFinished { get => _SettingFinished; }
 
+        // メッセージテキストを動的に生成
+        public string MessageText => string.Format("{0}から{1}までの整数値を入力", Min, Max);
+
         public PortSetting()
         {
             InitializeComponent();
             Min = 1;
             Max = 65535;
+            this.DataContext = this;
         }
 
         private void OkButton_Click(object sender, RoutedEventArgs e)

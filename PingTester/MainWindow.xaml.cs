@@ -116,7 +116,8 @@ namespace PingTester
 
         private void NumberOfSendChangeButton_Click(object sender, RoutedEventArgs e)
         {
-            PortSetting portSetting = new PortSetting() { Min = 1, Max = 65535 };
+            // [2026-04-12 修正] 送信回数として現実的な上限 1000 に変更
+            PortSetting portSetting = new PortSetting() { Min = 1, Max = 1000 };
             portSetting.ShowDialog();
             if (portSetting.SettingFinished)
             {

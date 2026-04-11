@@ -63,8 +63,7 @@ namespace PingTester
                 }
                 settings.IPAndNames = iPAndNames;
 
-                string requestResult = GetRequest("http://192.168.2.1");
-
+                // [2026-04-12 修正] 未使用の GetRequest 呼び出しを削除
                 Console.WriteLine("ルータ探索中...");
                 WriteLog("ルータ探索中...");
 
@@ -317,7 +316,8 @@ namespace PingTester
 
                 //var gotRule2 = firewallPolicy.Rules.Item(name + "_OUT");
 
-                if (gotRule == null)
+                // [2026-04-12 修正] OUTルール判定を gotRule2 に修正（gotRule の誤りを訂正）
+                if (gotRule2 == null)
                 {
                     INetFwRule firewallRule = (INetFwRule)Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FWRule"));
                     firewallRule.Action = NET_FW_ACTION_.NET_FW_ACTION_ALLOW;
@@ -364,52 +364,7 @@ namespace PingTester
             settings.IPAndNames = iPAndNames;
         }
 
-        static readonly string REQUEST_MESSAGE = String.Concat(
-            "M-SEARCH * HTTP/1.1\r\n",
-            "MX: 3\r\n",
-            "HOST: 239.255.255.250:1900\r\n",
-            "MAN: \"ssdp: discover\"\r\n",
-            "ST: service:WANIPConnection:1\r\n" // ST:例
-        );
-
-        private static void SendMSearch()
-        {
-            IPEndPoint LocalEndPoint = new IPEndPoint(IPAddress.Any, 1900);
-            IPEndPoint MulticastEndPoint = new IPEndPoint(IPAddress.Parse("239.255.255.250"), 1900);
-
-            Socket UdpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-
-            UdpSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            UdpSocket.Bind(LocalEndPoint);
-            UdpSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, new MulticastOption(MulticastEndPoint.Address, IPAddress.Any));
-            UdpSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 2);
-            UdpSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastLoopback, true);
-
-            Console.WriteLine("UDP-Socket setup done...\r\n");
-
-            //string SearchString = "M-SEARCH * HTTP/1.1\r\nHOST:239.255.255.250:1900\r\nMAN:\"ssdp:discover\"\r\nST:ssdp:all\r\nMX:3\r\n\r\n";
-
-            UdpSocket.SendTo(Encoding.UTF8.GetBytes(REQUEST_MESSAGE), SocketFlags.None, MulticastEndPoint);
-
-            Console.WriteLine("M-Search sent...\r\n");
-
-            byte[] ReceiveBuffer = new byte[64000];
-
-            int ReceivedBytes = 0;
-
-            while (true)
-            {
-                if (UdpSocket.Available > 0)
-                {
-                    ReceivedBytes = UdpSocket.Receive(ReceiveBuffer, SocketFlags.None);
-
-                    if (ReceivedBytes > 0)
-                    {
-                        Console.WriteLine(Encoding.UTF8.GetString(ReceiveBuffer, 0, ReceivedBytes));
-                    }
-                }
-            }
-        }
+        //未使用のSendMSearchおよびREQUEST_MESSAGEを削除
 
         public static string GetRequest(string url)
         {
