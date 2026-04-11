@@ -1,0 +1,77 @@
+﻿<Window x:Class="PingTester.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PingTester"
+        mc:Ignorable="d"
+        Title="{Binding Title}" Height="650" Width="900" Closing="Window_Closing" Loaded="Window_Loaded">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition/>
+        </Grid.ColumnDefinitions>
+        <Grid Margin="0,0,5,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="あなたのグローバルIPアドレス" Margin="0,0,5,0"/>
+                    <TextBox x:Name="gIPTextBox" Text="{Binding GIPStr}" Width="150" Margin="0,0,5,0" IsReadOnly="True"/>
+                    <Button x:Name="CopyButton" Content="コピー" Click="CopyButton_Click"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="使用ポート" Margin="0,0,5,0"/>
+                    <TextBlock Text="{Binding Port}" Width="Auto" Margin="0,0,5,0"/>
+                    <Button x:Name="portChangeButton" Content="変更" Click="PortChangeButton_Click"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="Ping送信回数" Margin="0,0,5,0"/>
+                    <TextBlock Text="{Binding NumberOfSend}" x:Name="numberOfSendBox" Margin="0,0,5,0"/>
+                    <Button x:Name="numberOfSendChangeButton" Content="変更" Click="NumberOfSendChangeButton_Click"/>
+                </StackPanel>
+
+                <TextBlock Text="確認するIPアドレス"/>
+            </StackPanel>
+
+            <ListView x:Name="checkListView" DataContext="{Binding IPAndNames}" ItemsSource="{Binding Mode=OneWay}" Grid.Row="1" SelectionChanged="CheckListView_SelectionChanged">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="名前" DisplayMemberBinding="{Binding Name}"/>
+                        <GridViewColumn Header="IPアドレス" DisplayMemberBinding="{Binding IP}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+
+            <StackPanel Grid.Row="2">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <Button x:Name="addButton" Content="追加" Margin="0,0,5,0" Click="AddButton_Click"/>
+                    <Button x:Name="deleteButton" Content="削除" IsEnabled="False" Click="DeleteButton_Click" Margin="0,0,5,0"/>
+                    <Button x:Name="modButton" Content="変更" IsEnabled="False" Click="ModButton_Click"/>
+                </StackPanel>
+                <CheckBox x:Name="autoSaveEnable" Content="設定自動保存" IsChecked="True" Margin="0,0,0,10"/>
+                <Button x:Name="scanButton" Content="ポートマッピング設定取得" Click="ScanButton_Click"/>
+                <Button x:Name="startButton" Content="開始" Click="StartButton_Click" IsEnabled="{Binding PossibleExecute}"/>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Column="1">
+            <ListView DataContext="{Binding IPAndNames}" ItemsSource="{Binding Mode=OneWay}" Grid.Row="1">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="名前" DisplayMemberBinding="{Binding Name}"/>
+                        <GridViewColumn Header="IPアドレス" DisplayMemberBinding="{Binding IP}"/>
+                        <GridViewColumn Header="最小値(ms)" DisplayMemberBinding="{Binding Min}"/>
+                        <GridViewColumn Header="最大値(ms)" DisplayMemberBinding="{Binding Max}"/>
+                        <GridViewColumn Header="平均値(ms)" DisplayMemberBinding="{Binding Average}"/>
+                        <GridViewColumn Header="前回平均値(ms)" DisplayMemberBinding="{Binding PrevAverage}"/>
+                        <GridViewColumn Header="総平均値(ms)" DisplayMemberBinding="{Binding AllAverage}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,16 @@
+﻿<Window x:Class="PingTester.PortSetting"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PingTester"
+        mc:Ignorable="d"
+        Title="ポート番号を入力" Height="150" Width="200">
+    <Grid>
+        <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="1から65535までの整数値を入力"/>
+            <TextBox x:Name="portBox" Margin="0,0,0,10"/>
+            <Button x:Name="okButton" Content="OK" Click="OkButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

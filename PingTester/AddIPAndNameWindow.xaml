@@ -1,0 +1,18 @@
+﻿<Window x:Class="PingTester.AddIPAndNameWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PingTester"
+        mc:Ignorable="d"
+        Title="IPアドレス追加" Height="150" Width="200">
+    <Grid>
+        <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="名前を入力"/>
+            <TextBox x:Name="nameBox" Margin="0,0,0,10"/>
+            <TextBlock Text="IPアドレスを入力"/>
+            <TextBox x:Name="ipBox" Margin="0,0,0,10"/>
+            <Button x:Name="okButton" Content="OK" Click="OkButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
