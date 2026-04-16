@@ -193,7 +193,9 @@ namespace PingTester
         // StartSendPing 内の psping 呼び出しを置き換え
         private static IPAndName MeasureUdpPing(IPAndName ian, Settings settings)
         {
-            var (min, max, avg) = UdpPingClient.Ping(ian.IP, settings.Port, settings.NumberOfSend);
+            // [2026-04-16 修正] 相手の ExternalPort が設定されていればそちらを優先使用、未設定なら自分の Port を使用
+            int targetPort = ian.ExternalPort > 0 ? ian.ExternalPort : settings.Port;
+            var (min, max, avg) = UdpPingClient.Ping(ian.IP, targetPort, settings.NumberOfSend);
 
             IPAndName result = new IPAndName
             {
@@ -272,8 +274,10 @@ namespace PingTester
                     index++;
 
                     // [2026-04-12 修正] psping.exe 呼び出しを UDP Ping 計測に置き換え
-                    WriteLog(string.Format("UDP Ping実行: {0}:{1} x{2}", ian.IP, settings.Port, settings.NumberOfSend));
-                    settings.Title = string.Format("PingTester(実行中[{0}]:{1}:{2})", ian.Name, ian.IP, settings.Port);
+                    // [2026-04-16 修正] ログに表示するポートを実際の送信先ポートに合わせる
+                    int logPort = ian.ExternalPort > 0 ? ian.ExternalPort : settings.Port;
+                    WriteLog(string.Format("UDP Ping実行: {0}:{1} x{2}", ian.IP, logPort, settings.NumberOfSend));
+                    settings.Title = string.Format("PingTester(実行中[{0}]:{1}:{2})", ian.Name, ian.IP, logPort);
 
                     IPAndName resultIAN = MeasureUdpPing(ian, settings);
 
