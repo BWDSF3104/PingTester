@@ -100,6 +100,25 @@ namespace PingTester
         }
 
         public UdpPingServer UdpServer { get; set; }
+
+        // [2026-04-18 追加] MQTT シグナリングサービス
+        public SignalingService SignalingService { get; set; }
+
+        // [2026-04-18 追加] MQTT ルームID（全員共通の固定値。Settings.xml で管理）
+        private string _RoomId = "pingtester-default-room";
+        public string RoomId
+        {
+            get => _RoomId;
+            set { _RoomId = value; RaisePropertyChanged(nameof(RoomId)); }
+        }
+
+        // [2026-04-18 追加] 自分の表示名（相手側の IPAndNames リストに表示される）
+        private string _MyName = Environment.MachineName;
+        public string MyName
+        {
+            get => _MyName;
+            set { _MyName = value; RaisePropertyChanged(nameof(MyName)); }
+        }
     }
 
     public class IPAndName

@@ -41,6 +41,16 @@ namespace PingTester
                     send = 10;
                 }
                 settings.NumberOfSend = send;
+
+                // [2026-04-18 追加] RoomId と MyName を Settings.xml から読み込む
+                string roomId = element.Element("RoomId")?.Value;
+                if (!string.IsNullOrEmpty(roomId)) settings.RoomId = roomId;
+                WriteLog("【設定ファイル】読込RoomId:" + settings.RoomId);
+
+                string myName = element.Element("MyName")?.Value;
+                if (!string.IsNullOrEmpty(myName)) settings.MyName = myName;
+                WriteLog("【設定ファイル】読込MyName:" + settings.MyName);
+
                 WriteLog("【設定ファイル】読込Ping送信回数:" + send);
 
                 string ipAndNamesStr = element.Element("IP").Value;
@@ -134,8 +144,24 @@ namespace PingTester
             FireWallSetting();
 
             // [2026-04-12 修正] STUN で外部エンドポイント取得を試み、失敗時は UPnP にフォールバック
+            // [2026-04-18 修正] MQTT 接続・ポート情報送信を STUN/UPnP と連携して実行
             Task.Run(async () =>
             {
+                // MQTT 接続（STUN より先に開始して retain メッセージを受信できる状態にする）
+                try
+                {
+                    settings.SignalingService = new SignalingService();
+                    settings.SignalingService.OnPortInfoReceived += (name, portInfo) =>
+                        HandlePortInfoReceived(settings, name, portInfo);
+                    await settings.SignalingService.Start(settings.RoomId, settings.MyName);
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("MQTT: 接続失敗: " + ex.Message);
+                }
+
+                // STUN で外部エンドポイント取得を試み、失敗時は UPnP にフォールバック
+                string externalPortInfo = null;
                 bool stunSuccess = false;
                 try
                 {
@@ -144,6 +170,7 @@ namespace PingTester
                     if (externalEP != null)
                     {
                         stunSuccess = true;
+                        externalPortInfo = externalEP.ToString(); // "IP:Port" 形式
                         WriteLog($"STUN: 成功 → 外部エンドポイント {externalEP}");
                         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
                             settings.GIPStr = externalEP.Address.ToString());
@@ -161,6 +188,22 @@ namespace PingTester
                 if (!stunSuccess)
                 {
                     AddUdpPortMapping(settings);
+                    // UPnP フォールバック時は GIPStr + Port でポート情報を構成
+                    if (!string.IsNullOrEmpty(settings.GIPStr))
+                        externalPortInfo = $"{settings.GIPStr}:{settings.Port}";
+                }
+
+                // 外部エンドポイントが確定したら MQTT で送信
+                if (externalPortInfo != null && settings.SignalingService != null)
+                {
+                    try
+                    {
+                        await settings.SignalingService.SendPortInfo(externalPortInfo);
+                    }
+                    catch (Exception ex)
+                    {
+                        WriteLog("MQTT: ポート情報送信失敗: " + ex.Message);
+                    }
                 }
             });
 
@@ -181,6 +224,12 @@ namespace PingTester
         {
             settings.UdpServer?.Stop();
             RemoveUdpPortMapping(settings);
+            // [2026-04-18 追加] MQTT 切断・retain クリア
+            settings.SignalingService?.Stop().ContinueWith(t =>
+            {
+                if (t.Exception != null)
+                    WriteLog("MQTT: 停止時エラー: " + t.Exception.InnerException?.Message);
+            });
         }
 
         // [2026-04-12 修正] TCP/psping サーバ停止処理を廃止。UDP (EndWaitPing) に統一。
@@ -480,6 +529,9 @@ namespace PingTester
                 }
                 sw.WriteLine(string.Format("  <IP>{0}</IP>", ipAndNamesBuilder.ToString()));
                 sw.WriteLine(string.Format("  <Send>{0}</Send>", settings.NumberOfSend));
+                // [2026-04-18 追加] RoomId と MyName を保存
+                sw.WriteLine(string.Format("  <RoomId>{0}</RoomId>", settings.RoomId));
+                sw.WriteLine(string.Format("  <MyName>{0}</MyName>", settings.MyName));
                 sw.WriteLine("</Main>");
                 sw.Dispose();
             }
@@ -487,6 +539,57 @@ namespace PingTester
             {
                 System.Windows.Forms.MessageBox.Show(ex.Message);
                 WriteLog(ex.Message + "\n" + ex.StackTrace);
+            }
+        }
+
+        // [2026-04-18 追加] MQTT 受信時に IPAndNames を自動更新するハンドラ
+        // 同名エントリが既存なら ExternalPort を更新、なければ新規追加する
+        private static void HandlePortInfoReceived(Settings settings, string name, string portInfo)
+        {
+            try
+            {
+                // "IP:Port" を分割してパース
+                int lastColon = portInfo.LastIndexOf(':');
+                if (lastColon < 0) return;
+
+                string ip = portInfo.Substring(0, lastColon);
+                string portStr = portInfo.Substring(lastColon + 1);
+                if (!int.TryParse(portStr, out int port)) return;
+
+                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    // 同名または同IPのエントリを探して更新、なければ追加
+                    var existing = null as IPAndName;
+                    foreach (var ian in settings.IPAndNames)
+                    {
+                        if (ian.Name == name || ian.IP == ip)
+                        {
+                            existing = ian;
+                            break;
+                        }
+                    }
+
+                    if (existing != null)
+                    {
+                        existing.IP = ip;
+                        existing.ExternalPort = port;
+                        WriteLog($"MQTT: エントリ更新 name={name} ip={ip} port={port}");
+                    }
+                    else
+                    {
+                        settings.AddIPAndName(new IPAndName
+                        {
+                            Name = name,
+                            IP = ip,
+                            ExternalPort = port
+                        });
+                        WriteLog($"MQTT: エントリ追加 name={name} ip={ip} port={port}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                WriteLog("MQTT: ポート情報処理エラー: " + ex.Message);
             }
         }
 

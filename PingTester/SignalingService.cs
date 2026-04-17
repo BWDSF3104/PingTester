@@ -10,9 +10,10 @@ using System.Threading.Tasks;
 
 /// <summary>
 /// MQTT (HiveMQ Public Broker) を使って UDP ポート情報を交換するシグナリングサービス。
-/// Pusher から移行。サーバ不要・無料・認証不要で動作する。
-/// トピック: pingtester/room/{roomId}/info
-/// 自分の送信したメッセージは sender フィールドで識別して無視する。
+/// トピック構造:
+///   購読: pingtester/room/{roomId}/+/info  （ワイルドカードで全参加者を受信）
+///   送信: pingtester/room/{roomId}/{senderId}/info  （自分専用トピックに retain 送信）
+/// retain=true により、後から参加したユーザーも既存メンバーの情報を即取得できる。
 /// </summary>
 public class SignalingService
 {
@@ -24,17 +25,20 @@ public class SignalingService
     private IMqttClient _mqttClient;
     private string _roomId;
     private string _senderId;
+    private string _myName;
 
-    /// <summary>相手からポート情報を受信したときに発火するイベント。</summary>
-    public event Action<string> OnPortInfoReceived;
+    /// <summary>相手からポート情報を受信したときに発火するイベント。引数は (名前, "IP:Port" 文字列)。</summary>
+    public event Action<string, string> OnPortInfoReceived;
 
     /// <summary>
-    /// MQTT ブローカーに接続し、指定ルームのトピックを購読する。
+    /// MQTT ブローカーに接続し、指定ルームのトピックをワイルドカード購読する。
     /// </summary>
-    /// <param name="roomId">ルームID。UUID 等の衝突しにくい文字列を推奨。</param>
-    public async Task Start(string roomId)
+    /// <param name="roomId">ルームID。全員共通の固定文字列を想定。</param>
+    /// <param name="myName">自分の表示名。受信側の IPAndNames に反映される。</param>
+    public async Task Start(string roomId, string myName)
     {
         _roomId = roomId;
+        _myName = myName;
         // 送信者識別用に起動ごとに一意なIDを生成
         _senderId = Guid.NewGuid().ToString("N");
 
@@ -53,19 +57,20 @@ public class SignalingService
 
         await _mqttClient.ConnectAsync(options, CancellationToken.None);
 
-        // ルーム固有トピックを QoS1 で購読
-        string topic = BuildTopic();
+        // ルーム内の全参加者トピックをワイルドカードで購読（QoS1）
+        // "+" は単一レベルのワイルドカード。例: pingtester/room/myroom/+/info
+        string subscribeTopic = BuildSubscribeTopic();
         await _mqttClient.SubscribeAsync(
             new MqttClientSubscribeOptionsBuilder()
-                .WithTopicFilter(topic, MqttQualityOfServiceLevel.AtLeastOnce)
+                .WithTopicFilter(subscribeTopic, MqttQualityOfServiceLevel.AtLeastOnce)
                 .Build(),
             CancellationToken.None);
 
-        MainProcess.WriteLog($"MQTT: 接続完了 broker={BrokerHost}:{BrokerPort} roomId={roomId}");
+        MainProcess.WriteLog($"MQTT: 接続完了 broker={BrokerHost}:{BrokerPort} roomId={roomId} name={myName}");
     }
 
     /// <summary>
-    /// 自分の UDP ポート情報をルームに送信する。
+    /// 自分の UDP ポート情報をルームに送信する。retain=true のため後着ユーザーも取得可能。
     /// </summary>
     /// <param name="myPortInfo">送信するポート情報文字列 (例: "203.0.113.5:54321")</param>
     public async Task SendPortInfo(string myPortInfo)
@@ -79,49 +84,68 @@ public class SignalingService
         string payload = JsonConvert.SerializeObject(new SignalingMessage
         {
             Sender = _senderId,
+            Name = _myName,
             PortInfo = myPortInfo
         });
 
         var message = new MqttApplicationMessageBuilder()
-            .WithTopic(BuildTopic())
+            .WithTopic(BuildPublishTopic())
             .WithPayload(payload)
             .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
-            .WithRetainFlag(false)
+            // retain=true: ブローカーが最新メッセージを保持し後着ユーザーに即配信する
+            .WithRetainFlag(true)
             .Build();
 
         await _mqttClient.PublishAsync(message, CancellationToken.None);
-        MainProcess.WriteLog($"MQTT: 送信完了 port_info={myPortInfo}");
+        MainProcess.WriteLog($"MQTT: 送信完了 name={_myName} port_info={myPortInfo}");
     }
 
     /// <summary>
     /// MQTT ブローカーから切断する。アプリ終了時に呼ぶ。
+    /// retain メッセージを空ペイロードで上書きしてブローカーから削除する。
     /// </summary>
     public async Task Stop()
     {
-        if (_mqttClient != null && _mqttClient.IsConnected)
-        {
-            await _mqttClient.DisconnectAsync();
-            MainProcess.WriteLog("MQTT: 切断");
-        }
+        if (_mqttClient == null || !_mqttClient.IsConnected) return;
+
+        // retain 削除: 空ペイロード + retain=true で送ることでブローカーが保持を破棄する
+        var clearMessage = new MqttApplicationMessageBuilder()
+            .WithTopic(BuildPublishTopic())
+            .WithPayload(Array.Empty<byte>())
+            .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+            .WithRetainFlag(true)
+            .Build();
+
+        await _mqttClient.PublishAsync(clearMessage, CancellationToken.None);
+        await _mqttClient.DisconnectAsync();
+        MainProcess.WriteLog("MQTT: 切断・retain クリア完了");
     }
 
     // ---- private ----
 
-    private string BuildTopic() => $"{TopicBase}/{_roomId}/info";
+    // 送信トピック: 自分専用。他者と重複しないよう senderId をパスに含める
+    private string BuildPublishTopic() => $"{TopicBase}/{_roomId}/{_senderId}/info";
+
+    // 購読トピック: "+" ワイルドカードで同ルームの全参加者を一括購読
+    private string BuildSubscribeTopic() => $"{TopicBase}/{_roomId}/+/info";
 
     private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
     {
         try
         {
             var segment = e.ApplicationMessage.PayloadSegment;
+
+            // retain クリア（空ペイロード）は無視する
+            if (segment.Count == 0) return Task.CompletedTask;
+
             string raw = Encoding.UTF8.GetString(segment.Array, segment.Offset, segment.Count);
             var msg = JsonConvert.DeserializeObject<SignalingMessage>(raw);
 
             // 自分自身が送ったメッセージは無視
             if (msg == null || msg.Sender == _senderId) return Task.CompletedTask;
 
-            MainProcess.WriteLog($"MQTT: 受信 port_info={msg.PortInfo}");
-            OnPortInfoReceived?.Invoke(msg.PortInfo);
+            MainProcess.WriteLog($"MQTT: 受信 name={msg.Name} port_info={msg.PortInfo}");
+            OnPortInfoReceived?.Invoke(msg.Name, msg.PortInfo);
         }
         catch (Exception ex)
         {
@@ -135,6 +159,9 @@ public class SignalingService
     {
         [JsonProperty("sender")]
         public string Sender { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
 
         [JsonProperty("port_info")]
         public string PortInfo { get; set; }
