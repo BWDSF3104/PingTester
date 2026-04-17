@@ -1,5 +1,6 @@
 ﻿using PingTester;
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -32,6 +33,7 @@ public class UdpPingServer
             }
             catch (SocketException ex) when (!_running)
             {
+                Debug.WriteLine($"Stop()による終了:{ex.Message}");
                 break; // Stop()による終了
             }
             catch (Exception ex)
