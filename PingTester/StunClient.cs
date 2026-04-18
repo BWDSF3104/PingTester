@@ -96,7 +96,13 @@ namespace PingTester
         // UdpPingServer から再利用するため internal に変更
         internal static IPEndPoint ParseBindingResponse(byte[] data, byte[] transactionId)
         {
-            if (data.Length < 20) return null;
+            MainProcess.WriteLog($"  [STUN] 応答解析: {data.Length}bytes, TxnID={BitConverter.ToString(transactionId, 0, 3)}...");
+
+            if (data.Length < 20)
+            {
+                MainProcess.WriteLog($"  [STUN] ⚠️  パケット短すぎる: {data.Length} < 20");
+                return null;
+            }
 
             // Magic Cookie 確認
             if (data[4] != 0x21 || data[5] != 0x12 || data[6] != 0xA4 || data[7] != 0x42)

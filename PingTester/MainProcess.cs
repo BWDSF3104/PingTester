@@ -173,6 +173,7 @@ namespace PingTester
                         stunSuccess = true;
                         externalPortInfo = externalEP.ToString();
                         WriteLog($"STUN: 成功 → 外部エンドポイント {externalEP}");
+
                         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
                             settings.GIPStr = externalEP.Address.ToString());
                     }
@@ -290,6 +291,11 @@ namespace PingTester
             return result;
         }
 
+        /// <summary>
+        /// STUN失敗時にUPnPでUDPポートマッピングを追加する。
+        /// 通常は使用されないが、STUNが失敗する環境での通信を可能にするためのフォールバック手段として実装。
+        /// </summary>
+        /// <param name="settings"></param>
         private static void AddUdpPortMapping(Settings settings)
         {
             try
@@ -297,22 +303,26 @@ namespace PingTester
                 IPAddress localIP = settings.Napt?.GetLocalIPAddress();
                 if (settings.Napt == null || localIP == null) return;
 
+                WriteLog($"UDPポートマッピング: ローカルIP={localIP}");
+
                 settings.Napt.AddPortMapping(
                     null,
                     (ushort)settings.Port,
-                    "UDP", // ← UDPに変更
+                    "UDP",
                     (ushort)settings.Port,
                     localIP,
                     true,
                     "PingTester UDP mapping",
                     3600
                 );
+                WriteLog($"✅ UDPポートマッピング成功: {localIP}:{settings.Port}");
             }
             catch (Exception ex)
             {
                 WriteLog("UDPポートマッピング追加失敗: " + ex.Message);
             }
         }
+
         private static void RemoveUdpPortMapping(Settings settings)
         {
             try

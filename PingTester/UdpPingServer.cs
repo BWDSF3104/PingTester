@@ -14,6 +14,7 @@ public class UdpPingServer
     private UdpClient _udpClient;
     private Thread _thread;
     private bool _running;
+    private IPAddress _confirmedLocalIP;  // ← 【修正】STUN成功時に確定したローカルIP
 
     // Ping レスポンスパケットを ServerLoop から Ping() へ渡すためのキューとシグナル
     private readonly ConcurrentQueue<byte[]> _pingResponseQueue = new ConcurrentQueue<byte[]>();
@@ -33,11 +34,20 @@ public class UdpPingServer
 
     public void Start(int port)
     {
-        _udpClient = new UdpClient(port);
-        _running = true;
-        _thread = new Thread(ServerLoop) { IsBackground = true };
-        _thread.Start();
-        MainProcess.WriteLog($"UDPエコーサーバ起動: ポート {port}");
+        try
+        {
+            // 【修正】0.0.0.0 にバインド → OS自動判定で外部接続用NIC選択
+            _udpClient = new UdpClient(port);
+            _running = true;
+            _thread = new Thread(ServerLoop) { IsBackground = true };
+            _thread.Start();
+            MainProcess.WriteLog($"UDPエコーサーバ起動: ポート {port}");
+        }
+        catch (Exception ex)
+        {
+            MainProcess.WriteLog($"UDPエコーサーバ起動失敗: {ex.Message}");
+            throw;
+        }
     }
 
     private void ServerLoop()
@@ -50,11 +60,15 @@ public class UdpPingServer
                 byte[] data = _udpClient.Receive(ref remoteEP);
                 if (data.Length == 0) continue;
 
+                // 【追加】全受信パケット記録
+                MainProcess.WriteLog($"受信: {remoteEP.Address}:{remoteEP.Port} - {data.Length}bytes type={data[0]:X2}");
+
                 // STUN パケットは最優先で判定（マジッククッキーで識別）
                 // STUN Binding Response の先頭バイトは 0x01 であり
                 // PacketRequest と衝突するため switch より前に処理する
                 if (IsStunPacket(data))
                 {
+                    MainProcess.WriteLog("STUN応答受信 確認");
                     string key = ToTransactionKey(data, 8);
                     if (_stunPendingMap.TryGetValue(key, out var tcs))
                         tcs.TrySetResult(data);
@@ -66,7 +80,15 @@ public class UdpPingServer
                     case PacketRequest:
                         // Ping リクエスト: 種別バイトを Response に書き換えてそのままエコー返す
                         data[0] = PacketResponse;
-                        _udpClient.Send(data, data.Length, remoteEP);
+                        try
+                        {
+                            int sent = _udpClient.Send(data, data.Length, remoteEP);
+                            MainProcess.WriteLog($"Pingレスポンス送信: {remoteEP.Address}:{remoteEP.Port} {sent}bytes");
+                        }
+                        catch (Exception ex)
+                        {
+                            MainProcess.WriteLog($"Pingレスポンス送信失敗: {remoteEP.Address}:{remoteEP.Port} - {ex.Message}");
+                        }
                         break;
 
                     case PacketResponse:
@@ -101,18 +123,36 @@ public class UdpPingServer
     }
 
     /// <summary>
+    /// STUN成功時に確定したローカルIPアドレス
+    /// 複数NIC環境で外部接続に使用されたIPが確定したもの
+    /// </summary>
+    public IPAddress GetConfirmedLocalIP()
+    {
+        return _confirmedLocalIP;
+    }
+
+    /// <summary>
     /// サーバソケット経由で STUN を実行し外部エンドポイントを取得する。
     /// 同一ソケットを使うことで NAT マッピングが Ping 通信と完全に一致する。
     /// 全サーバ失敗時は null を返す。
     /// </summary>
     public async Task<IPEndPoint> GetExternalEndPointAsync(int timeoutMs = 3000)
     {
+        MainProcess.WriteLog($"【STUN開始】 タイムアウト={timeoutMs}ms, ローカルEP={((IPEndPoint)_udpClient.Client.LocalEndPoint)}");
+
         foreach (var (host, port) in StunClient.StunServers)
         {
             try
             {
+                MainProcess.WriteLog($"  [STUN] {host}:{port} に接続試行...");
+
                 IPAddress[] addresses = await Dns.GetHostAddressesAsync(host);
-                if (addresses.Length == 0) continue;
+                if (addresses.Length == 0)
+                {
+                    MainProcess.WriteLog($"  [STUN] ⚠️  DNS解決失敗: {host}");
+                    continue;
+                }
+                MainProcess.WriteLog($"  [STUN] DNS解決成功: {host} → {addresses[0]}");
 
                 byte[] transactionId = new byte[12];
                 new Random().NextBytes(transactionId);
@@ -124,12 +164,40 @@ public class UdpPingServer
                 {
                     byte[] request = StunClient.BuildBindingRequest(transactionId);
                     IPEndPoint stunEP = new IPEndPoint(addresses[0], port);
+
+                    MainProcess.WriteLog($"  [STUN] リクエスト送信: {request.Length}bytes → {stunEP}");
                     _udpClient.Send(request, request.Length, stunEP);
 
                     if (await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs)) == tcs.Task)
                     {
                         IPEndPoint result = StunClient.ParseBindingResponse(tcs.Task.Result, transactionId);
-                        if (result != null) return result;
+                        if (result != null)
+                        {
+                            // 【修正】0.0.0.0ではなく、実際に使用されているローカルIPを取得
+                            IPAddress actualLocalIP = GetActualLocalIPAddress();
+                            if (actualLocalIP != null)
+                            {
+                                _confirmedLocalIP = actualLocalIP;
+                            }
+                            else
+                            {
+                                // フォールバック：UPnP取得値を使用
+                                _confirmedLocalIP = null;
+                            }
+
+                            MainProcess.WriteLog($"✅ [STUN成功] {host}:{port} → 外部EP={result}");
+                            MainProcess.WriteLog($"✅ [確定ローカルIP] {_confirmedLocalIP}");
+                            return result;
+                        }
+                        else
+                        {
+                            MainProcess.WriteLog($"  [STUN] ⚠️  応答パース失敗: {tcs.Task.Result.Length}bytes");
+                        }
+                    }
+                    else
+                    {
+                        MainProcess.WriteLog($"  [STUN] ❌ タイムアウト({timeoutMs}ms): {host}:{port}");
+
                     }
                 }
                 finally
@@ -137,7 +205,10 @@ public class UdpPingServer
                     _stunPendingMap.TryRemove(key, out _);
                 }
             }
-            catch { /* 次のサーバへ */ }
+            catch (Exception ex)
+            {
+                MainProcess.WriteLog($"  [STUN] ❌ 例外: {host}:{port} - {ex.GetType().Name}: {ex.Message}");
+            }
         }
         return null;
     }
@@ -150,7 +221,13 @@ public class UdpPingServer
     public (double min, double max, double avg) Ping(
         string targetIP, int targetPort, int count, int timeoutMs = 3000)
     {
-        if (_udpClient == null || !_running) return (-1, -1, -1);
+        if (_udpClient == null || !_running)
+        {
+            MainProcess.WriteLog("Pingエラー: UdpClient が null または 未実行");
+            return (-1, -1, -1);
+        }
+
+        MainProcess.WriteLog($"Ping開始: ローカルエンドポイント={((IPEndPoint)_udpClient.Client.LocalEndPoint)}");
 
         // 前回の Ping 残りレスポンスを破棄してシグナルをリセット
         while (_pingResponseQueue.TryDequeue(out _)) { }
@@ -166,8 +243,20 @@ public class UdpPingServer
             payload[0] = PacketRequest;
             Buffer.BlockCopy(BitConverter.GetBytes(DateTime.UtcNow.Ticks), 0, payload, 1, 8);
 
+            // 【追加】送信前の確認
+            MainProcess.WriteLog($"Ping送信[{i + 1}/{count}]: {remoteEP.Address}:{remoteEP.Port}");
+
             // サーバソケット経由で送信 — NAT の穴を通る
-            _udpClient.Send(payload, payload.Length, remoteEP);
+            try
+            {
+                int sent = _udpClient.Send(payload, payload.Length, remoteEP);
+                MainProcess.WriteLog($"  送信完了: {sent}bytes");
+            }
+            catch (Exception ex)
+            {
+                MainProcess.WriteLog($"  送信エラー: {ex.Message}");
+                continue;
+            }
 
             if (_pingResponseSignal.Wait(timeoutMs))
             {
@@ -210,6 +299,34 @@ public class UdpPingServer
         catch (Exception ex)
         {
             MainProcess.WriteLog("ホールパンチング送信失敗: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 外部への通信に実際に使用されるローカルIPアドレスを取得
+    /// （0.0.0.0ではなく実際のIPを返す）
+    /// </summary>
+    private static IPAddress GetActualLocalIPAddress()
+    {
+        try
+        {
+            // 一時的なUDPソケットでGoogle DNSへの仮想経路を確認
+            using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+            {
+                // 実際には接続しない（UDPなので接続不要）
+                // ルーティングテーブルから送信元IPを判定するだけ
+                socket.Connect("8.8.8.8", 53);
+                IPEndPoint localEP = (IPEndPoint)socket.LocalEndPoint;
+                IPAddress actualIP = localEP.Address;
+
+                MainProcess.WriteLog($"  [実ローカルIP判定] {actualIP}");
+                return actualIP;
+            }
+        }
+        catch (Exception ex)
+        {
+            MainProcess.WriteLog($"  [実ローカルIP判定失敗] {ex.Message}");
+            return null;
         }
     }
 
