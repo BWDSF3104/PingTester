@@ -11,7 +11,8 @@ namespace PingTester
     public static class StunClient
     {
         // Google 公開 STUN サーバ（メイン／フォールバック）
-        private static readonly (string host, int port)[] StunServers =
+        // UdpPingServer から再利用するため internal に変更
+        internal static readonly (string host, int port)[] StunServers =
         {
             ("stun.l.google.com",      19302),
             ("stun1.l.google.com",     19302),
@@ -26,6 +27,7 @@ namespace PingTester
         /// </summary>
         /// <param name="localPort">バインドするローカル UDP ポート</param>
         /// <param name="timeoutMs">1サーバあたりのタイムアウト(ms)</param>
+        [Obsolete("UdpPingServer.GetExternalEndPointAsync() を使用してください。サーバソケット共有により NAT マッピングが一致します。")]
         public static async Task<IPEndPoint> GetExternalEndPointAsync(
             int localPort, int timeoutMs = 3000)
         {
@@ -73,7 +75,8 @@ namespace PingTester
         }
 
         // STUN Binding Request パケット生成（RFC 5389）
-        private static byte[] BuildBindingRequest(byte[] transactionId)
+        // UdpPingServer から再利用するため internal に変更
+        internal static byte[] BuildBindingRequest(byte[] transactionId)
         {
             byte[] msg = new byte[20];
 
@@ -90,7 +93,8 @@ namespace PingTester
         }
 
         // STUN Binding Response パース。XOR-MAPPED-ADDRESS(0x0020) 優先、次に MAPPED-ADDRESS(0x0001)
-        private static IPEndPoint ParseBindingResponse(byte[] data, byte[] transactionId)
+        // UdpPingServer から再利用するため internal に変更
+        internal static IPEndPoint ParseBindingResponse(byte[] data, byte[] transactionId)
         {
             if (data.Length < 20) return null;
 

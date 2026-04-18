@@ -176,7 +176,6 @@
     <Compile Include="Settings.cs" />
     <Compile Include="SignalingService.cs" />
     <Compile Include="StunClient.cs" />
-    <Compile Include="UdpPingClient.cs" />
     <Compile Include="UdpPingServer.cs" />
     <Compile Include="UPnPWanService.cs" />
     <Page Include="AddIPAndNameWindow.xaml">

@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 
 public class UdpPingServer
 {
@@ -17,6 +18,10 @@ public class UdpPingServer
     // Ping レスポンスパケットを ServerLoop から Ping() へ渡すためのキューとシグナル
     private readonly ConcurrentQueue<byte[]> _pingResponseQueue = new ConcurrentQueue<byte[]>();
     private readonly SemaphoreSlim _pingResponseSignal = new SemaphoreSlim(0);
+
+    // STUN トランザクションID → TCS のマップ（ServerLoop から GetExternalEndPointAsync へ応答を渡す）
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<byte[]>> _stunPendingMap
+        = new ConcurrentDictionary<string, TaskCompletionSource<byte[]>>();
 
     // パケット種別識別バイト（先頭 1 バイト）
     private const byte PacketRequest = 0x01;
@@ -45,11 +50,21 @@ public class UdpPingServer
                 byte[] data = _udpClient.Receive(ref remoteEP);
                 if (data.Length == 0) continue;
 
+                // STUN パケットは最優先で判定（マジッククッキーで識別）
+                // STUN Binding Response の先頭バイトは 0x01 であり
+                // PacketRequest と衝突するため switch より前に処理する
+                if (IsStunPacket(data))
+                {
+                    string key = ToTransactionKey(data, 8);
+                    if (_stunPendingMap.TryGetValue(key, out var tcs))
+                        tcs.TrySetResult(data);
+                    continue;
+                }
+
                 switch (data[0])
                 {
                     case PacketRequest:
                         // Ping リクエスト: 種別バイトを Response に書き換えてそのままエコー返す
-                        // タイムスタンプ(byte[1-8])は変更不要 — 送信側が RTT 計算に使う
                         data[0] = PacketResponse;
                         _udpClient.Send(data, data.Length, remoteEP);
                         break;
@@ -83,6 +98,48 @@ public class UdpPingServer
         _udpClient?.Close();
         _thread?.Join(1000);
         MainProcess.WriteLog("UDPエコーサーバ停止");
+    }
+
+    /// <summary>
+    /// サーバソケット経由で STUN を実行し外部エンドポイントを取得する。
+    /// 同一ソケットを使うことで NAT マッピングが Ping 通信と完全に一致する。
+    /// 全サーバ失敗時は null を返す。
+    /// </summary>
+    public async Task<IPEndPoint> GetExternalEndPointAsync(int timeoutMs = 3000)
+    {
+        foreach (var (host, port) in StunClient.StunServers)
+        {
+            try
+            {
+                IPAddress[] addresses = await Dns.GetHostAddressesAsync(host);
+                if (addresses.Length == 0) continue;
+
+                byte[] transactionId = new byte[12];
+                new Random().NextBytes(transactionId);
+                string key = ToTransactionKey(transactionId, 0);
+
+                var tcs = new TaskCompletionSource<byte[]>();
+                _stunPendingMap[key] = tcs;
+                try
+                {
+                    byte[] request = StunClient.BuildBindingRequest(transactionId);
+                    IPEndPoint stunEP = new IPEndPoint(addresses[0], port);
+                    _udpClient.Send(request, request.Length, stunEP);
+
+                    if (await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs)) == tcs.Task)
+                    {
+                        IPEndPoint result = StunClient.ParseBindingResponse(tcs.Task.Result, transactionId);
+                        if (result != null) return result;
+                    }
+                }
+                finally
+                {
+                    _stunPendingMap.TryRemove(key, out _);
+                }
+            }
+            catch { /* 次のサーバへ */ }
+        }
+        return null;
     }
 
     /// <summary>
@@ -155,4 +212,14 @@ public class UdpPingServer
             MainProcess.WriteLog("ホールパンチング送信失敗: " + ex.Message);
         }
     }
+
+    // STUN パケット判定（マジッククッキー 0x2112A442 の存在で識別）
+    private static bool IsStunPacket(byte[] data)
+        => data.Length >= 20
+        && data[4] == 0x21 && data[5] == 0x12
+        && data[6] == 0xA4 && data[7] == 0x42;
+
+    // STUN パケットのトランザクションID（指定オフセットから 12 バイト）をキー文字列に変換
+    private static string ToTransactionKey(byte[] data, int offset)
+        => BitConverter.ToString(data, offset, 12);
 }

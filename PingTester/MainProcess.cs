@@ -149,13 +149,25 @@ namespace PingTester
             //                   購読を UdpPingServer 起動後に行うことで Punch が確実に機能する
             Task.Run(async () =>
             {
-                // ① STUN で外部エンドポイント取得（UdpPingServer 起動前に実行し settings.Port を使えるようにする）
+                // [2026-04-18 修正] 処理順を「UdpPingServer起動 → サーバソケット経由STUN → MQTT接続 → MQTT送信」に変更
+                //                   旧実装では一時ソケットで STUN を取得後にソケットを閉じ
+                //                   UdpPingServer が別ソケットを作成するため NAT が異なる外部ポートを
+                //                   割り当てる場合があり、通知した外部ポートと実際の通信ポートが不一致になっていた
+                //                   サーバソケット自身で STUN を実行することで NAT マッピングを完全に一致させる
+
+                // ① UdpPingServer を先に起動する
+                //    STUN もこのソケット経由で実行するため起動を最初に行う
+                settings.UdpServer = new UdpPingServer();
+                settings.UdpServer.Start(settings.Port);
+
+                // ② UdpPingServer 自身のソケット経由で STUN を実行する
+                //    同一ソケットを使うことで取得した外部ポートと実際の通信ポートが必ず一致する
                 string externalPortInfo = null;
                 bool stunSuccess = false;
                 try
                 {
                     WriteLog("STUN: 外部エンドポイント取得中...");
-                    IPEndPoint externalEP = await StunClient.GetExternalEndPointAsync(settings.Port);
+                    IPEndPoint externalEP = await settings.UdpServer.GetExternalEndPointAsync();
                     if (externalEP != null)
                     {
                         stunSuccess = true;
@@ -180,10 +192,6 @@ namespace PingTester
                     if (!string.IsNullOrEmpty(settings.GIPStr))
                         externalPortInfo = $"{settings.GIPStr}:{settings.Port}";
                 }
-
-                // ② STUN ソケットが解放された後に UdpPingServer を起動する
-                settings.UdpServer = new UdpPingServer();
-                settings.UdpServer.Start(settings.Port);
 
                 // ③ MQTT 接続・購読開始（UdpPingServer 起動後に行うことで
                 //    retain メッセージ受信時に Punch が確実に実行される）
