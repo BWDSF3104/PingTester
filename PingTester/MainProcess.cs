@@ -143,28 +143,13 @@ namespace PingTester
             Console.WriteLine("ファイアウォール設定追加");
             FireWallSetting();
 
-            // [2026-04-12 修正] STUN で外部エンドポイント取得を試み、失敗時は UPnP にフォールバック
-            // [2026-04-18 修正] MQTT 接続・ポート情報送信を STUN/UPnP と連携して実行
-            // [2026-04-18 修正] 処理順を「STUN取得 → UdpPingServer起動 → MQTT送信」に変更
-            //                   以前は UdpPingServer 起動後に STUN を実行していたため
-            //                   settings.Port が占有済みとなり STUN がポート 0 で動作していた
-            //                   その結果、MQTT で通知した外部ポートと実際の待受ポートが異なりタイムアウトになっていた
+            // [2026-04-18 修正] 処理順を「STUN取得 → UdpPingServer起動 → MQTT接続・送信」に変更
+            //                   旧順序では MQTT 購読開始後すぐに retain メッセージが届き
+            //                   UdpPingServer 未起動のため Punch がスキップされていた
+            //                   購読を UdpPingServer 起動後に行うことで Punch が確実に機能する
             Task.Run(async () =>
             {
-                // MQTT 接続（retain メッセージを受信できる状態を先に作る）
-                try
-                {
-                    settings.SignalingService = new SignalingService();
-                    settings.SignalingService.OnPortInfoReceived += (name, portInfo) =>
-                        HandlePortInfoReceived(settings, name, portInfo);
-                    await settings.SignalingService.Start(settings.RoomId, settings.MyName);
-                }
-                catch (Exception ex)
-                {
-                    WriteLog("MQTT: 接続失敗: " + ex.Message);
-                }
-
-                // STUN で外部エンドポイント取得（UdpPingServer 起動前に実行し settings.Port を使えるようにする）
+                // ① STUN で外部エンドポイント取得（UdpPingServer 起動前に実行し settings.Port を使えるようにする）
                 string externalPortInfo = null;
                 bool stunSuccess = false;
                 try
@@ -196,11 +181,25 @@ namespace PingTester
                         externalPortInfo = $"{settings.GIPStr}:{settings.Port}";
                 }
 
-                // STUN ソケットが解放された後に UdpPingServer を起動する
+                // ② STUN ソケットが解放された後に UdpPingServer を起動する
                 settings.UdpServer = new UdpPingServer();
                 settings.UdpServer.Start(settings.Port);
 
-                // 外部エンドポイントが確定したら MQTT で送信
+                // ③ MQTT 接続・購読開始（UdpPingServer 起動後に行うことで
+                //    retain メッセージ受信時に Punch が確実に実行される）
+                try
+                {
+                    settings.SignalingService = new SignalingService();
+                    settings.SignalingService.OnPortInfoReceived += (name, portInfo) =>
+                        HandlePortInfoReceived(settings, name, portInfo);
+                    await settings.SignalingService.Start(settings.RoomId, settings.MyName);
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("MQTT: 接続失敗: " + ex.Message);
+                }
+
+                // ④ 外部エンドポイントが確定したら MQTT で送信
                 if (externalPortInfo != null && settings.SignalingService != null)
                 {
                     try
