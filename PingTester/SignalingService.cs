@@ -40,7 +40,10 @@ public class SignalingService
         _roomId = roomId;
         _myName = myName;
         // 送信者識別用に起動ごとに一意なIDを生成
-        _senderId = Guid.NewGuid().ToString("N");
+        // [2026-04-18 修正] 起動ごとにランダム生成していた _senderId を MAC アドレス＋マシン名の固定値に変更
+        //                   異常終了後の再起動時に同じ _senderId で retain を上書きでき
+        //                   自分自身のメッセージを正しく除外できる
+        _senderId = GenerateSenderId();
 
         var factory = new MqttFactory();
         _mqttClient = factory.CreateMqttClient();
@@ -67,6 +70,37 @@ public class SignalingService
             CancellationToken.None);
 
         MainProcess.WriteLog($"MQTT: 接続完了 broker={BrokerHost}:{BrokerPort} roomId={roomId} name={myName}");
+    }
+
+    /// <summary>
+    /// MAC アドレスとマシン名を組み合わせた固定の送信者 ID を生成する。
+    /// 再起動後も同じ値になるため、異常終了時に残った retain を次回起動時に上書きできる。
+    /// </summary>
+    // [2026-04-18 追加] 固定 senderId 生成
+    private static string GenerateSenderId()
+    {
+        try
+        {
+            string mac = "unknown";
+            foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Ethernet ||
+                    nic.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211)
+                {
+                    string addr = nic.GetPhysicalAddress().ToString();
+                    if (!string.IsNullOrEmpty(addr) && addr != "000000000000")
+                    {
+                        mac = addr;
+                        break;
+                    }
+                }
+            }
+            return $"{Environment.MachineName}_{mac}";
+        }
+        catch
+        {
+            return Environment.MachineName;
+        }
     }
 
     /// <summary>

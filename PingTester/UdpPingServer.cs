@@ -50,4 +50,32 @@ public class UdpPingServer
         _thread?.Join(1000);
         MainProcess.WriteLog("UDPエコーサーバ停止");
     }
+
+    /// <summary>
+    /// サーバのソケット（設定ポート）から相手 IP:Port に向けてダミーパケットを送信し
+    /// 自分側の NAT に経路を開ける。相手側も同様に実行することで双方向通信が確立する。
+    /// </summary>
+    /// <param name="targetIP">相手の外部IPアドレス</param>
+    /// <param name="targetPort">相手の外部ポート番号</param>
+    /// <param name="count">送信回数</param>
+    // [2026-04-18 追加] UDPホールパンチング用ダミーパケット送信
+    public void Punch(string targetIP, int targetPort, int count = 3)
+    {
+        if (_udpClient == null) return;
+        try
+        {
+            IPEndPoint target = new IPEndPoint(IPAddress.Parse(targetIP), targetPort);
+            byte[] dummy = new byte[] { 0x00 };
+            for (int i = 0; i < count; i++)
+            {
+                _udpClient.Send(dummy, dummy.Length, target);
+                Thread.Sleep(100);
+            }
+            MainProcess.WriteLog($"ホールパンチング送信: {targetIP}:{targetPort} x{count}");
+        }
+        catch (Exception ex)
+        {
+            MainProcess.WriteLog("ホールパンチング送信失敗: " + ex.Message);
+        }
+    }
 }

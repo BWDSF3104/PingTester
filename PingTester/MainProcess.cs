@@ -562,7 +562,14 @@ namespace PingTester
 
                 System.Windows.Application.Current?.Dispatcher.Invoke(() =>
                 {
-                    // 同名または同IPのエントリを探して更新、なければ追加
+                    // [2026-04-18 追加] 受信した IP が自分自身（外部IP）と一致する場合は登録しない
+                    //                   異常終了時の retain 残りや senderId 変更前の自己受信を防ぐ
+                    if (ip == settings.GIPStr)
+                    {
+                        WriteLog($"MQTT: 自分自身のエントリのため無視 ip={ip}");
+                        return;
+                    }
+
                     var existing = null as IPAndName;
                     foreach (var ian in settings.IPAndNames)
                     {
@@ -589,6 +596,9 @@ namespace PingTester
                         });
                         WriteLog($"MQTT: エントリ追加 name={name} ip={ip} port={port}");
                     }
+
+                    // ホールパンチングを実行
+                    settings.UdpServer?.Punch(ip, port);
                 });
             }
             catch (Exception ex)
