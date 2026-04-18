@@ -145,9 +145,13 @@ namespace PingTester
 
             // [2026-04-12 修正] STUN で外部エンドポイント取得を試み、失敗時は UPnP にフォールバック
             // [2026-04-18 修正] MQTT 接続・ポート情報送信を STUN/UPnP と連携して実行
+            // [2026-04-18 修正] 処理順を「STUN取得 → UdpPingServer起動 → MQTT送信」に変更
+            //                   以前は UdpPingServer 起動後に STUN を実行していたため
+            //                   settings.Port が占有済みとなり STUN がポート 0 で動作していた
+            //                   その結果、MQTT で通知した外部ポートと実際の待受ポートが異なりタイムアウトになっていた
             Task.Run(async () =>
             {
-                // MQTT 接続（STUN より先に開始して retain メッセージを受信できる状態にする）
+                // MQTT 接続（retain メッセージを受信できる状態を先に作る）
                 try
                 {
                     settings.SignalingService = new SignalingService();
@@ -160,7 +164,7 @@ namespace PingTester
                     WriteLog("MQTT: 接続失敗: " + ex.Message);
                 }
 
-                // STUN で外部エンドポイント取得を試み、失敗時は UPnP にフォールバック
+                // STUN で外部エンドポイント取得（UdpPingServer 起動前に実行し settings.Port を使えるようにする）
                 string externalPortInfo = null;
                 bool stunSuccess = false;
                 try
@@ -170,7 +174,7 @@ namespace PingTester
                     if (externalEP != null)
                     {
                         stunSuccess = true;
-                        externalPortInfo = externalEP.ToString(); // "IP:Port" 形式
+                        externalPortInfo = externalEP.ToString();
                         WriteLog($"STUN: 成功 → 外部エンドポイント {externalEP}");
                         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
                             settings.GIPStr = externalEP.Address.ToString());
@@ -188,10 +192,13 @@ namespace PingTester
                 if (!stunSuccess)
                 {
                     AddUdpPortMapping(settings);
-                    // UPnP フォールバック時は GIPStr + Port でポート情報を構成
                     if (!string.IsNullOrEmpty(settings.GIPStr))
                         externalPortInfo = $"{settings.GIPStr}:{settings.Port}";
                 }
+
+                // STUN ソケットが解放された後に UdpPingServer を起動する
+                settings.UdpServer = new UdpPingServer();
+                settings.UdpServer.Start(settings.Port);
 
                 // 外部エンドポイントが確定したら MQTT で送信
                 if (externalPortInfo != null && settings.SignalingService != null)
@@ -206,9 +213,6 @@ namespace PingTester
                     }
                 }
             });
-
-            settings.UdpServer = new UdpPingServer();
-            settings.UdpServer.Start(settings.Port);
         }
 
         // [2026-04-12 修正] TCP/psping サーバ起動処理を廃止。UDP (StartWaitPing) に統一。

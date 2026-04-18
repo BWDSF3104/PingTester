@@ -56,9 +56,10 @@ namespace PingTester
 
             byte[] request = BuildBindingRequest(transactionId);
 
-            // [2026-04-12 修正] localPort は UdpPingServer が占有している場合があるため
-            //                   ポート 0 (OS自動割当) でバインドする
-            using (UdpClient udp = new UdpClient(0))
+            // [2026-04-18 修正] ポート 0 ではなく引数の localPort を実際に使用する
+            //                   ポート 0 では UdpPingServer と異なる NAT マッピングが生成され
+            //                   相手から届いたパケットをサーバが受信できなかった
+            using (UdpClient udp = new UdpClient(localPort))
             {
                 udp.Client.ReceiveTimeout = timeoutMs;
                 await udp.SendAsync(request, request.Length, stunEP);
