@@ -7,6 +7,8 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Linq;
 
+// [2026-04-18 廃止] UdpPingServer.Ping() に移行。別ソケット使用のため NAT ホールパンチングが機能しなかった
+[Obsolete("UdpPingServer.Ping() を使用してください。サーバソケット共有により NAT 経路が正しく機能します。")]
 public class UdpPingClient
 {
     /// <summary>

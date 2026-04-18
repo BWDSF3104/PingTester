@@ -1,6 +1,9 @@
 ﻿using PingTester;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -10,6 +13,18 @@ public class UdpPingServer
     private UdpClient _udpClient;
     private Thread _thread;
     private bool _running;
+
+    // Ping レスポンスパケットを ServerLoop から Ping() へ渡すためのキューとシグナル
+    private readonly ConcurrentQueue<byte[]> _pingResponseQueue = new ConcurrentQueue<byte[]>();
+    private readonly SemaphoreSlim _pingResponseSignal = new SemaphoreSlim(0);
+
+    // パケット種別識別バイト（先頭 1 バイト）
+    private const byte PacketRequest = 0x01;
+    private const byte PacketResponse = 0x02;
+    // Punch() が送るダミーパケット（0x00）は無視する
+
+    // パケットサイズ: 種別(1) + 送信時刻 Ticks(8) + パディング(8) = 17 バイト
+    private const int PayloadSize = 17;
 
     public void Start(int port)
     {
@@ -28,13 +43,32 @@ public class UdpPingServer
             try
             {
                 byte[] data = _udpClient.Receive(ref remoteEP);
-                // 受け取ったデータをそのままエコー返す
-                _udpClient.Send(data, data.Length, remoteEP);
+                if (data.Length == 0) continue;
+
+                switch (data[0])
+                {
+                    case PacketRequest:
+                        // Ping リクエスト: 種別バイトを Response に書き換えてそのままエコー返す
+                        // タイムスタンプ(byte[1-8])は変更不要 — 送信側が RTT 計算に使う
+                        data[0] = PacketResponse;
+                        _udpClient.Send(data, data.Length, remoteEP);
+                        break;
+
+                    case PacketResponse:
+                        // Ping レスポンス: Ping() の待機スレッドに渡す
+                        _pingResponseQueue.Enqueue(data);
+                        _pingResponseSignal.Release();
+                        break;
+
+                    default:
+                        // 0x00(Punch ダミー)など、その他は無視
+                        break;
+                }
             }
             catch (SocketException ex) when (!_running)
             {
                 Debug.WriteLine($"Stop()による終了:{ex.Message}");
-                break; // Stop()による終了
+                break;
             }
             catch (Exception ex)
             {
@@ -52,13 +86,56 @@ public class UdpPingServer
     }
 
     /// <summary>
-    /// サーバのソケット（設定ポート）から相手 IP:Port に向けてダミーパケットを送信し
-    /// 自分側の NAT に経路を開ける。相手側も同様に実行することで双方向通信が確立する。
+    /// サーバソケット（設定ポート）を使って UDP Ping を n 回送信し Min/Max/Average を返す。
+    /// ソケットを共有することで NAT に開けた穴を正しく使用できる。
+    /// 戻り値: (min_ms, max_ms, avg_ms)、全タイムアウト時は (-1, -1, -1)
     /// </summary>
-    /// <param name="targetIP">相手の外部IPアドレス</param>
-    /// <param name="targetPort">相手の外部ポート番号</param>
-    /// <param name="count">送信回数</param>
-    // [2026-04-18 追加] UDPホールパンチング用ダミーパケット送信
+    public (double min, double max, double avg) Ping(
+        string targetIP, int targetPort, int count, int timeoutMs = 3000)
+    {
+        if (_udpClient == null || !_running) return (-1, -1, -1);
+
+        // 前回の Ping 残りレスポンスを破棄してシグナルをリセット
+        while (_pingResponseQueue.TryDequeue(out _)) { }
+        while (_pingResponseSignal.CurrentCount > 0) _pingResponseSignal.Wait(0);
+
+        List<double> rtts = new List<double>();
+        IPEndPoint remoteEP = new IPEndPoint(IPAddress.Parse(targetIP), targetPort);
+
+        for (int i = 0; i < count; i++)
+        {
+            // リクエストパケット生成: 種別(1) + 送信時刻 Ticks(8) + パディング(8)
+            byte[] payload = new byte[PayloadSize];
+            payload[0] = PacketRequest;
+            Buffer.BlockCopy(BitConverter.GetBytes(DateTime.UtcNow.Ticks), 0, payload, 1, 8);
+
+            // サーバソケット経由で送信 — NAT の穴を通る
+            _udpClient.Send(payload, payload.Length, remoteEP);
+
+            if (_pingResponseSignal.Wait(timeoutMs))
+            {
+                if (_pingResponseQueue.TryDequeue(out byte[] response) && response.Length >= 9)
+                {
+                    long sentTicks = BitConverter.ToInt64(response, 1);
+                    double rtt = (DateTime.UtcNow.Ticks - sentTicks) / (double)TimeSpan.TicksPerMillisecond;
+                    rtts.Add(rtt);
+                }
+            }
+            else
+            {
+                MainProcess.WriteLog($"UDP Pingタイムアウト: {targetIP}:{targetPort}");
+            }
+
+            Thread.Sleep(100);
+        }
+
+        if (rtts.Count == 0) return (-1, -1, -1);
+        return (rtts.Min(), rtts.Max(), rtts.Average());
+    }
+
+    /// <summary>
+    /// サーバソケットから相手 IP:Port へダミーパケットを送信して NAT に経路を開ける。
+    /// </summary>
     public void Punch(string targetIP, int targetPort, int count = 3)
     {
         if (_udpClient == null) return;

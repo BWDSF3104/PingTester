@@ -244,11 +244,17 @@ namespace PingTester
         }
 
         // StartSendPing 内の psping 呼び出しを置き換え
+        // [2026-04-18 修正] UdpPingClient(別ソケット) → UdpPingServer.Ping()(サーバソケット共有) に変更
+        //                   サーバソケットを使うことで NAT ホールパンチングで開けた穴が正しく機能する
         private static IPAndName MeasureUdpPing(IPAndName ian, Settings settings)
         {
             // [2026-04-16 修正] 相手の ExternalPort が設定されていればそちらを優先使用、未設定なら自分の Port を使用
             int targetPort = ian.ExternalPort > 0 ? ian.ExternalPort : settings.Port;
-            var (min, max, avg) = UdpPingClient.Ping(ian.IP, targetPort, settings.NumberOfSend);
+
+            // UdpPingServer が未起動の場合はタイムアウト扱い
+            var (min, max, avg) = settings.UdpServer != null
+                ? settings.UdpServer.Ping(ian.IP, targetPort, settings.NumberOfSend)
+                : (-1.0, -1.0, -1.0);
 
             IPAndName result = new IPAndName
             {
