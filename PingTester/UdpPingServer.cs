@@ -78,27 +78,33 @@ public class UdpPingServer
                 switch (data[0])
                 {
                     case PacketRequest:
+                        // [2026-04-19 追加] Pingリクエスト受信ログ（疎通確認用）
+                        MainProcess.WriteLog($"Pingリクエスト受信: {remoteEP.Address}:{remoteEP.Port}");
                         // Ping リクエスト: 種別バイトを Response に書き換えてそのままエコー返す
                         data[0] = PacketResponse;
                         try
                         {
                             int sent = _udpClient.Send(data, data.Length, remoteEP);
-                            MainProcess.WriteLog($"Pingレスポンス送信: {remoteEP.Address}:{remoteEP.Port} {sent}bytes");
+                            // [2026-04-19 追加] エコー送信ログ（疎通確認用）
+                            MainProcess.WriteLog($"Pingエコー送信: {remoteEP.Address}:{remoteEP.Port} {sent}bytes");
                         }
                         catch (Exception ex)
                         {
-                            MainProcess.WriteLog($"Pingレスポンス送信失敗: {remoteEP.Address}:{remoteEP.Port} - {ex.Message}");
+                            MainProcess.WriteLog($"Pingエコー送信失敗: {remoteEP.Address}:{remoteEP.Port} - {ex.Message}");
                         }
                         break;
 
                     case PacketResponse:
                         // Ping レスポンス: Ping() の待機スレッドに渡す
+                        // [2026-04-19 追加] Pingレスポンス受信ログ（疎通確認用）
+                        MainProcess.WriteLog($"Pingレスポンス受信: {remoteEP.Address}:{remoteEP.Port}");
                         _pingResponseQueue.Enqueue(data);
                         _pingResponseSignal.Release();
                         break;
 
                     default:
-                        // 0x00(Punch ダミー)など、その他は無視
+                        // [2026-04-19 追加] 不明パケット受信ログ（疎通確認用）
+                        MainProcess.WriteLog($"不明パケット受信: {remoteEP.Address}:{remoteEP.Port} type={data[0]:X2}");
                         break;
                 }
             }
@@ -133,12 +139,15 @@ public class UdpPingServer
 
     /// <summary>
     /// サーバソケット経由で STUN を実行し外部エンドポイントを取得する。
-    /// 同一ソケットを使うことで NAT マッピングが Ping 通信と完全に一致する。
+    /// 複数サーバに問い合わせて外部ポートの一致を確認し NAT タイプを判定する。
     /// 全サーバ失敗時は null を返す。
     /// </summary>
     public async Task<IPEndPoint> GetExternalEndPointAsync(int timeoutMs = 3000)
     {
         MainProcess.WriteLog($"【STUN開始】 タイムアウト={timeoutMs}ms, ローカルEP={((IPEndPoint)_udpClient.Client.LocalEndPoint)}");
+
+        // [2026-04-19 修正] 複数サーバに問い合わせて外部ポートの変化を確認（Symmetric NAT 判定）
+        var results = new List<IPEndPoint>();
 
         foreach (var (host, port) in StunClient.StunServers)
         {
@@ -173,21 +182,10 @@ public class UdpPingServer
                         IPEndPoint result = StunClient.ParseBindingResponse(tcs.Task.Result, transactionId);
                         if (result != null)
                         {
-                            // 【修正】0.0.0.0ではなく、実際に使用されているローカルIPを取得
-                            IPAddress actualLocalIP = GetActualLocalIPAddress();
-                            if (actualLocalIP != null)
-                            {
-                                _confirmedLocalIP = actualLocalIP;
-                            }
-                            else
-                            {
-                                // フォールバック：UPnP取得値を使用
-                                _confirmedLocalIP = null;
-                            }
-
                             MainProcess.WriteLog($"✅ [STUN成功] {host}:{port} → 外部EP={result}");
-                            MainProcess.WriteLog($"✅ [確定ローカルIP] {_confirmedLocalIP}");
-                            return result;
+                            // [2026-04-19 追加] 各サーバの結果を記録してポート変化を確認
+                            MainProcess.WriteLog($"  [NATチェック] {host}:{port} → 外部EP={result}");
+                            results.Add(result);
                         }
                         else
                         {
@@ -197,7 +195,6 @@ public class UdpPingServer
                     else
                     {
                         MainProcess.WriteLog($"  [STUN] ❌ タイムアウト({timeoutMs}ms): {host}:{port}");
-
                     }
                 }
                 finally
@@ -209,8 +206,32 @@ public class UdpPingServer
             {
                 MainProcess.WriteLog($"  [STUN] ❌ 例外: {host}:{port} - {ex.GetType().Name}: {ex.Message}");
             }
+
+            // [2026-04-19 追加] サーバ間で少し間隔を空ける
+            await Task.Delay(500);
         }
-        return null;
+
+        if (results.Count == 0) return null;
+
+        // [2026-04-19 追加] 外部ポートが全サーバで一致するか確認してNATタイプを判定
+        bool isSymmetric = results.Select(r => r.Port).Distinct().Count() > 1;
+        if (isSymmetric)
+        {
+            MainProcess.WriteLog("⚠️ [NAT判定] Symmetric NAT を検出。ホールパンチングは機能しません。");
+            MainProcess.WriteLog($"  検出ポート一覧: {string.Join(", ", results.Select(r => r.Port))}");
+        }
+        else
+        {
+            MainProcess.WriteLog($"✅ [NAT判定] Cone NAT (ポート={results[0].Port} 一致)");
+        }
+
+        // [2026-04-19 追加] 確定したローカルIPをログ出力
+        IPAddress actualLocalIP = GetActualLocalIPAddress();
+        if (actualLocalIP != null)
+            MainProcess.WriteLog($"✅ [確定ローカルIP] {actualLocalIP}");
+
+        //最初に成功した結果を返す
+        return results[0];
     }
 
     /// <summary>
