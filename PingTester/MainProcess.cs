@@ -293,6 +293,7 @@ namespace PingTester
             {
                 IP = ian.IP,
                 Name = ian.Name,
+                ExternalPort = ian.ExternalPort,  // [2026-04-23 追加] 次回 Ping でも正しいポートを使えるよう引き継ぐ
                 PrevAverage = ian.Average,
                 Count = ian.Count,
                 AllAverage = ian.AllAverage,
