@@ -11,6 +11,8 @@
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition/>
         </Grid.ColumnDefinitions>
+        <!-- [2026-04-23 修正] 左パネル: 手動追加/削除/変更・ポート設定・ポートマッピング取得を削除
+                               RoomId/MyName 編集と外部エンドポイント表示を追加 -->
         <Grid Margin="0,0,5,0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -18,40 +20,48 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <StackPanel>
+                <!-- グローバルIP表示 -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="あなたのグローバルIPアドレス" Margin="0,0,5,0"/>
+                    <TextBlock Text="グローバルIP" Margin="0,0,5,0" VerticalAlignment="Center"/>
                     <TextBox x:Name="gIPTextBox" Text="{Binding GIPStr}" Width="150" Margin="0,0,5,0" IsReadOnly="True"/>
                     <Button x:Name="CopyButton" Content="コピー" Click="CopyButton_Click"/>
                 </StackPanel>
+                <!-- 外部エンドポイント（STUN 取得・OS 自動割り当てポートを含む） -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="使用ポート" Margin="0,0,5,0"/>
-                    <TextBlock Text="{Binding Port}" Width="Auto" Margin="0,0,5,0"/>
-                    <Button x:Name="portChangeButton" Content="変更" Click="PortChangeButton_Click"/>
+                    <TextBlock Text="外部エンドポイント" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                    <TextBox Text="{Binding ExternalEPStr}" Width="150" IsReadOnly="True"/>
                 </StackPanel>
+                <!-- Ping 送信回数 -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="Ping送信回数" Margin="0,0,5,0"/>
-                    <TextBlock Text="{Binding NumberOfSend}" x:Name="numberOfSendBox" Margin="0,0,5,0"/>
+                    <TextBlock Text="Ping送信回数" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding NumberOfSend}" x:Name="numberOfSendBox" Margin="0,0,5,0" VerticalAlignment="Center"/>
                     <Button x:Name="numberOfSendChangeButton" Content="変更" Click="NumberOfSendChangeButton_Click"/>
                 </StackPanel>
+                <!-- ルームID（通常変更不要） -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                    <TextBlock Text="ルームID" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                    <TextBox Text="{Binding RoomId, UpdateSourceTrigger=PropertyChanged}" Width="150"/>
+                </StackPanel>
+                <TextBlock Text="※ ルームIDは通常変更不要です" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+                <!-- 自分の名前 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="自分の名前" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                    <TextBox Text="{Binding MyName, UpdateSourceTrigger=PropertyChanged}" Width="150"/>
+                </StackPanel>
+                <!-- MQTT 再接続（RoomId/MyName 変更後に押す） -->
+                <Button x:Name="reconnectButton" Content="MQTT再接続" Margin="0,0,0,10" Click="ReconnectButton_Click"/>
 
-                <TextBlock Text="確認するIPアドレス"/>
+                <TextBlock Text="接続済みメンバー"/>
             </StackPanel>
 
+            <!-- [2026-04-23 修正] 外部ポート列を読み取り専用表示に変更（MQTT 自動入力）
+                                   SelectionChanged ハンドラを削除 -->
             <ListView x:Name="checkListView" DataContext="{Binding IPAndNames}" ItemsSource="{Binding Mode=OneWay}" Grid.Row="1" SelectionChanged="CheckListView_SelectionChanged">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="名前" DisplayMemberBinding="{Binding Name}"/>
                         <GridViewColumn Header="IPアドレス" DisplayMemberBinding="{Binding IP}"/>
-                        <!-- [2026-04-12 追加] 相手の外部ポート入力列 -->
-                        <GridViewColumn Header="外部ポート" Width="80">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBox Width="68"
-                                 Text="{Binding ExternalPort, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                 PreviewTextInput="ExternalPortBox_PreviewTextInput"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
+                        <GridViewColumn Header="外部ポート" DisplayMemberBinding="{Binding ExternalPort}" Width="80"/>
                     </GridView>
                 </ListView.View>
             </ListView>
@@ -63,7 +73,6 @@
                     <Button x:Name="modButton" Content="変更" IsEnabled="False" Click="ModButton_Click"/>
                 </StackPanel>
                 <CheckBox x:Name="autoSaveEnable" Content="設定自動保存" IsChecked="True" Margin="0,0,0,10"/>
-                <Button x:Name="scanButton" Content="ポートマッピング設定取得" Click="ScanButton_Click"/>
                 <Button x:Name="startButton" Content="開始" Click="StartButton_Click" IsEnabled="{Binding PossibleExecute}"/>
             </StackPanel>
         </Grid>
@@ -83,6 +92,8 @@
                         <GridViewColumn Header="平均値(ms)" DisplayMemberBinding="{Binding Average}"/>
                         <GridViewColumn Header="前回平均値(ms)" DisplayMemberBinding="{Binding PrevAverage}"/>
                         <GridViewColumn Header="総平均値(ms)" DisplayMemberBinding="{Binding AllAverage}"/>
+                        <!-- [2026-04-23 追加] 計測時に実際に使用した送信先ポートを表示 -->
+                        <GridViewColumn Header="使用ポート" DisplayMemberBinding="{Binding UsedPort}"/>
                     </GridView>
                 </ListView.View>
             </ListView>

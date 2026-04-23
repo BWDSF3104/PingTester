@@ -17,14 +17,16 @@ namespace PingTester
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
-        private int _Port;
-        public int Port
+        // [2026-04-23 追加] STUN で取得した外部エンドポイント文字列（例: "203.0.113.5:54321"）
+        // Port プロパティを廃止し OS 自動割り当てに移行。表示は STUN 取得値を使用する
+        private string _ExternalEPStr;
+        public string ExternalEPStr
         {
-            get => _Port;
+            get => _ExternalEPStr;
             set
             {
-                _Port = value;
-                RaisePropertyChanged(nameof(Port));
+                _ExternalEPStr = value;
+                RaisePropertyChanged(nameof(ExternalEPStr));
             }
         }
 
@@ -134,5 +136,7 @@ namespace PingTester
         public double PrevAverage { get; set; }
         public int Count { get; set; }
         public double AllAverage { get; set; }
+        // [2026-04-23 追加] Ping 計測時に実際に使用した送信先ポート番号（結果リストに表示）
+        public int UsedPort { get; set; }
     }
 }

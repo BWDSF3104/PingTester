@@ -29,13 +29,7 @@ namespace PingTester
             try
             {
                 XElement element = XElement.Load("Settings.xml");
-                if (!int.TryParse(element.Element("Port").Value, out int port))
-                {
-                    port = 12345;
-                }
-                settings.Port = port;
-                WriteLog("【設定ファイル】読込使用ポート:" + port);
-
+                // [2026-04-23 修正] Port 要素の読み込みを廃止。OS 自動割り当てに移行
                 if (!int.TryParse(element.Element("Send").Value, out int send))
                 {
                     send = 10;
@@ -53,36 +47,10 @@ namespace PingTester
 
                 WriteLog("【設定ファイル】読込Ping送信回数:" + send);
 
-                string ipAndNamesStr = element.Element("IP").Value;
-                System.Collections.ObjectModel.ObservableCollection<IPAndName> iPAndNames = new System.Collections.ObjectModel.ObservableCollection<IPAndName>();
-                if (ipAndNamesStr != null)
-                {
-                    string[] ipAndNamesStrArray = ipAndNamesStr.Split(new string[] { "\t" }, StringSplitOptions.RemoveEmptyEntries);
-                    var selectResult = ipAndNamesStrArray.Select(tmps =>
-                    {
-                        Console.WriteLine(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
-                        WriteLog(string.Format("【設定ファイル】IP情報取得：{0}", tmps));
-                        string[] ipAndNameSplited = tmps.Split(',');
-                        if (ipAndNameSplited.Length > 1)
-                        {
-                            // [2026-04-12 修正] 外部ポートを3番目の要素として読み込む
-                            int externalPort = 0;
-                            if (ipAndNameSplited.Length > 2)
-                                int.TryParse(ipAndNameSplited[2], out externalPort);
-
-                            IPAndName iPAndName = new IPAndName
-                            {
-                                IP = ipAndNameSplited[0],
-                                Name = ipAndNameSplited[1],
-                                ExternalPort = externalPort
-                            };
-                            iPAndNames.Add(iPAndName);
-                            return iPAndName;
-                        }
-                        return null;
-                    }).ToArray();
-                }
-                settings.IPAndNames = iPAndNames;
+                // [2026-04-23 修正] IPAndNames は MQTT 自動取得のため起動時は空リスト
+                // Settings.xml の IP 要素は読み込まず、接続後に MQTT 経由で自動補完される
+                settings.IPAndNames = new System.Collections.ObjectModel.ObservableCollection<IPAndName>();
+                WriteLog("【設定ファイル】IPリストは起動時空（MQTT自動取得）");
 
                 // [2026-04-12 修正] 未使用の GetRequest 呼び出しを削除
                 Console.WriteLine("ルータ探索中...");
@@ -157,8 +125,9 @@ namespace PingTester
 
                 // ① UdpPingServer を先に起動する
                 //    STUN もこのソケット経由で実行するため起動を最初に行う
+                // [2026-04-23 修正] ポート固定指定を廃止。0 を渡して OS に自動割り当てさせる
                 settings.UdpServer = new UdpPingServer();
-                settings.UdpServer.Start(settings.Port);
+                settings.UdpServer.Start(0);
 
                 // ② UdpPingServer 自身のソケット経由で STUN を実行する
                 //    同一ソケットを使うことで取得した外部ポートと実際の通信ポートが必ず一致する
@@ -175,7 +144,11 @@ namespace PingTester
                         WriteLog($"STUN: 成功 → 外部エンドポイント {externalEP}");
 
                         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
-                            settings.GIPStr = externalEP.Address.ToString());
+                        {
+                            settings.GIPStr = externalEP.Address.ToString();
+                            // [2026-04-23 追加] STUN 取得の外部エンドポイントを UI 表示用に保持
+                            settings.ExternalEPStr = externalEP.ToString();
+                        });
                     }
                     else
                     {
@@ -191,7 +164,8 @@ namespace PingTester
                 {
                     AddUdpPortMapping(settings);
                     if (!string.IsNullOrEmpty(settings.GIPStr))
-                        externalPortInfo = $"{settings.GIPStr}:{settings.Port}";
+                        // [2026-04-23 修正] settings.Port 廃止のため UdpServer.LocalPort を使用
+                        externalPortInfo = $"{settings.GIPStr}:{settings.UdpServer.LocalPort}";
                 }
 
                 // ③ MQTT 接続・購読開始（UdpPingServer 起動後に行うことで
@@ -244,6 +218,57 @@ namespace PingTester
             });
         }
 
+        /// <summary>
+        /// [2026-04-23 追加] RoomId または MyName 変更後に MQTT を再接続する。
+        /// 既存接続を切断→retain クリア→再接続→ポート情報再送信 の順に実行する。
+        /// </summary>
+        public static async Task ReconnectMqttAsync(Settings settings)
+        {
+            // 既存 MQTT 接続を切断・retain クリア
+            if (settings.SignalingService != null)
+            {
+                try
+                {
+                    await settings.SignalingService.Stop();
+                    WriteLog("MQTT: 再接続のため切断完了");
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("MQTT: 再接続前の切断エラー: " + ex.Message);
+                }
+                settings.SignalingService = null;
+            }
+
+            // 再接続
+            try
+            {
+                settings.SignalingService = new SignalingService();
+                settings.SignalingService.OnPortInfoReceived += (name, portInfo) =>
+                    HandlePortInfoReceived(settings, name, portInfo);
+                await settings.SignalingService.Start(settings.RoomId, settings.MyName);
+            }
+            catch (Exception ex)
+            {
+                WriteLog("MQTT: 再接続失敗: " + ex.Message);
+                return;
+            }
+
+            // 外部エンドポイントが確定済みであれば再送信
+            string externalPortInfo = settings.ExternalEPStr;
+            if (!string.IsNullOrEmpty(externalPortInfo))
+            {
+                try
+                {
+                    await settings.SignalingService.SendPortInfo(externalPortInfo);
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("MQTT: 再接続後ポート情報送信失敗: " + ex.Message);
+                }
+            }
+        }
+
+
         // [2026-04-12 修正] TCP/psping サーバ停止処理を廃止。UDP (EndWaitPing) に統一。
         [Obsolete("TCP/psping は廃止。EndWaitPing を使用してください。")]
         public static void EndWaitPingTCP(Settings settings)
@@ -256,8 +281,8 @@ namespace PingTester
         //                   サーバソケットを使うことで NAT ホールパンチングで開けた穴が正しく機能する
         private static IPAndName MeasureUdpPing(IPAndName ian, Settings settings)
         {
-            // [2026-04-16 修正] 相手の ExternalPort が設定されていればそちらを優先使用、未設定なら自分の Port を使用
-            int targetPort = ian.ExternalPort > 0 ? ian.ExternalPort : settings.Port;
+            // [2026-04-23 修正] settings.Port 廃止のため UdpServer.LocalPort を使用
+            int targetPort = ian.ExternalPort > 0 ? ian.ExternalPort : (settings.UdpServer?.LocalPort ?? 0);
 
             // UdpPingServer が未起動の場合はタイムアウト扱い
             var (min, max, avg) = settings.UdpServer != null
@@ -270,7 +295,9 @@ namespace PingTester
                 Name = ian.Name,
                 PrevAverage = ian.Average,
                 Count = ian.Count,
-                AllAverage = ian.AllAverage
+                AllAverage = ian.AllAverage,
+                // [2026-04-23 追加] 実際に使用した送信先ポートを Ping 結果に記録
+                UsedPort = targetPort
             };
 
             if (min < 0) return result; // 全タイムアウト
@@ -303,19 +330,26 @@ namespace PingTester
                 IPAddress localIP = settings.Napt?.GetLocalIPAddress();
                 if (settings.Napt == null || localIP == null) return;
 
-                WriteLog($"UDPポートマッピング: ローカルIP={localIP}");
+                // [2026-04-23 修正] settings.Port 廃止のため UdpServer.LocalPort を使用
+                int localPort = settings.UdpServer?.LocalPort ?? 0;
+                if (localPort == 0)
+                {
+                    WriteLog("UDPポートマッピング: ローカルポート未確定のためスキップ");
+                    return;
+                }
+                WriteLog($"UDPポートマッピング: ローカルIP={localIP} ポート={localPort}");
 
                 settings.Napt.AddPortMapping(
                     null,
-                    (ushort)settings.Port,
+                    (ushort)localPort,
                     "UDP",
-                    (ushort)settings.Port,
+                    (ushort)localPort,
                     localIP,
                     true,
                     "PingTester UDP mapping",
                     3600
                 );
-                WriteLog($"✅ UDPポートマッピング成功: {localIP}:{settings.Port}");
+                WriteLog($"✅ UDPポートマッピング成功: {localIP}:{localPort}");
             }
             catch (Exception ex)
             {
@@ -328,8 +362,10 @@ namespace PingTester
             try
             {
                 if (settings.Napt == null) return;
-
-                settings.Napt.DeletePortMapping(null, (ushort)settings.Port, "UDP");
+                // [2026-04-23 修正] settings.Port 廃止のため UdpServer.LocalPort を使用
+                int localPort = settings.UdpServer?.LocalPort ?? 0;
+                if (localPort == 0) return;
+                settings.Napt.DeletePortMapping(null, (ushort)localPort, "UDP");
             }
             catch (Exception ex)
             {
@@ -349,9 +385,8 @@ namespace PingTester
                 {
                     index++;
 
-                    // [2026-04-12 修正] psping.exe 呼び出しを UDP Ping 計測に置き換え
-                    // [2026-04-16 修正] ログに表示するポートを実際の送信先ポートに合わせる
-                    int logPort = ian.ExternalPort > 0 ? ian.ExternalPort : settings.Port;
+                    // [2026-04-23 修正] settings.Port 廃止のため UdpServer.LocalPort を使用
+                    int logPort = ian.ExternalPort > 0 ? ian.ExternalPort : (settings.UdpServer?.LocalPort ?? 0);
                     WriteLog(string.Format("UDP Ping実行: {0}:{1} x{2}", ian.IP, logPort, settings.NumberOfSend));
                     settings.Title = string.Format("PingTester(実行中[{0}]:{1}:{2})", ian.Name, ian.IP, logPort);
 
@@ -542,19 +577,9 @@ namespace PingTester
                 sw = new StreamWriter(new FileStream("Settings.xml", FileMode.Create));
                 sw.WriteLine("<?xml version=\"1.0\" encoding=\"utf-8\" ?>");
                 sw.WriteLine("<Main>");
-                sw.WriteLine(string.Format("  <Port>{0}</Port>", settings.Port));
-                StringBuilder ipAndNamesBuilder = new StringBuilder();
-                for (int index = 0; index < settings.IPAndNames.Count; index++)
-                {
-                    IPAndName ian = settings.IPAndNames[index];
-                    // [2026-04-12 修正] 外部ポートを3番目の要素として保存
-                    ipAndNamesBuilder.Append(string.Format("{0},{1},{2}", ian.IP, ian.Name, ian.ExternalPort));
-                    if (index < settings.IPAndNames.Count - 1)
-                    {
-                        ipAndNamesBuilder.Append("\t");
-                    }
-                }
-                sw.WriteLine(string.Format("  <IP>{0}</IP>", ipAndNamesBuilder.ToString()));
+                // [2026-04-23 修正] Port・IP 要素の保存を廃止
+                //   Port: OS 自動割り当てのため保存不要
+                //   IP:   MQTT 自動取得のため保存不要（起動時は空リストが正常）
                 sw.WriteLine(string.Format("  <Send>{0}</Send>", settings.NumberOfSend));
                 // [2026-04-18 追加] RoomId と MyName を保存
                 sw.WriteLine(string.Format("  <RoomId>{0}</RoomId>", settings.RoomId));

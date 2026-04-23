@@ -56,7 +56,6 @@ namespace PingTester
                 Console.WriteLine("クリップボードにコピー失敗");
             }
         }
-
         private void DeleteButton_Click(object sender, RoutedEventArgs e)
         {
             if (checkListView.SelectedIndex > -1)
@@ -64,7 +63,6 @@ namespace PingTester
                 if (MessageBox.Show("IPアドレスを削除しますか？", "確認", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                 {
                     settings.RemoveIPAndName((IPAndName)checkListView.SelectedValue);
-                    CallSaveSetting();
                 }
             }
         }
@@ -83,14 +81,6 @@ namespace PingTester
             }
         }
 
-        private void CallSaveSetting()
-        {
-            if (autoSaveEnable.IsChecked == true)
-            {
-                MainProcess.SaveSetting(settings);
-            }
-        }
-
         private void AddButton_Click(object sender, RoutedEventArgs e)
         {
             AddIPAndNameWindow addIPAndNameWindow = new AddIPAndNameWindow();
@@ -98,44 +88,7 @@ namespace PingTester
             if (addIPAndNameWindow.SettingFinished)
             {
                 settings.AddIPAndName(new IPAndName() { IP = addIPAndNameWindow.IP, Name = addIPAndNameWindow.IPName });
-                CallSaveSetting();
             }
-        }
-
-        private void PortChangeButton_Click(object sender, RoutedEventArgs e)
-        {
-            PortSetting portSetting = new PortSetting();
-            portSetting.ShowDialog();
-            if (portSetting.SettingFinished)
-            {
-                MainProcess.EndWaitPing(settings);
-                settings.Port = portSetting.Port;
-                MainProcess.StartWaitPing(settings);
-                CallSaveSetting();
-            }
-        }
-
-        private void NumberOfSendChangeButton_Click(object sender, RoutedEventArgs e)
-        {
-            // [2026-04-12 修正] 送信回数として現実的な上限 1000 に変更
-            PortSetting portSetting = new PortSetting() { Min = 1, Max = 1000 };
-            portSetting.ShowDialog();
-            if (portSetting.SettingFinished)
-            {
-                settings.NumberOfSend = portSetting.Port;
-                CallSaveSetting();
-            }
-        }
-
-        public IntPtr GetHandle()
-        {
-            var helper = new System.Windows.Interop.WindowInteropHelper(this);
-            return helper.Handle;
-        }
-
-        private void Window_Loaded(object sender, RoutedEventArgs e)
-        {
-            MainProcess.SwitchToThisWindow(GetHandle(), true);
         }
 
         private void ModButton_Click(object sender, RoutedEventArgs e)
@@ -149,27 +102,56 @@ namespace PingTester
                 {
                     settings.RemoveIPAndName(prevData);
                     settings.AddIPAndName(new IPAndName() { IP = addIPAndNameWindow.IP, Name = addIPAndNameWindow.IPName });
-                    CallSaveSetting();
                 }
             }
         }
 
-        private void ScanButton_Click(object sender, RoutedEventArgs e)
+        // [2026-04-23 修正] 送信回数変更は引き続き利用
+        private void NumberOfSendChangeButton_Click(object sender, RoutedEventArgs e)
         {
-            if (MainProcess.ScanPortMapping(settings))
+            PortSetting portSetting = new PortSetting() { Min = 1, Max = 1000 };
+            portSetting.ShowDialog();
+            if (portSetting.SettingFinished)
             {
-                scanButton.Content = "ポートマッピング設定取得";
-            }
-            else
-            {
-                scanButton.Content = "停止";
+                settings.NumberOfSend = portSetting.Port;
+                CallSaveSetting();
             }
         }
 
-        // [2026-04-12 追加] 外部ポート列は数字のみ入力可能にする
-        private void ExternalPortBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        // [2026-04-23 追加] RoomId/MyName 変更後に MQTT を再接続するボタンハンドラ
+        private async void ReconnectButton_Click(object sender, RoutedEventArgs e)
         {
-            e.Handled = !System.Text.RegularExpressions.Regex.IsMatch(e.Text, "^[0-9]+$");
+            reconnectButton.IsEnabled = false;
+            reconnectButton.Content = "再接続中...";
+            try
+            {
+                await MainProcess.ReconnectMqttAsync(settings);
+                CallSaveSetting();
+            }
+            finally
+            {
+                reconnectButton.IsEnabled = true;
+                reconnectButton.Content = "MQTT再接続";
+            }
+        }
+
+        private void CallSaveSetting()
+        {
+            if (autoSaveEnable.IsChecked == true)
+            {
+                MainProcess.SaveSetting(settings);
+            }
+        }
+
+        public IntPtr GetHandle()
+        {
+            var helper = new System.Windows.Interop.WindowInteropHelper(this);
+            return helper.Handle;
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            MainProcess.SwitchToThisWindow(GetHandle(), true);
         }
     }
 }

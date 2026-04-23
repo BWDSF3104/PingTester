@@ -16,6 +16,11 @@ public class UdpPingServer
     private bool _running;
     private IPAddress _confirmedLocalIP;  // ← 【修正】STUN成功時に確定したローカルIP
 
+    // [2026-04-23 追加] OS が割り当てたローカルポート番号。Start(0) 後に確定する
+    public int LocalPort => (_udpClient != null && _udpClient.Client.LocalEndPoint != null)
+        ? ((IPEndPoint)_udpClient.Client.LocalEndPoint).Port
+        : 0;
+
     // Ping レスポンスパケットを ServerLoop から Ping() へ渡すためのキューとシグナル
     private readonly ConcurrentQueue<byte[]> _pingResponseQueue = new ConcurrentQueue<byte[]>();
     private readonly SemaphoreSlim _pingResponseSignal = new SemaphoreSlim(0);
@@ -124,6 +129,8 @@ public class UdpPingServer
     {
         _running = false;
         _udpClient?.Close();
+        //LocalPortでnullExceptionが発生する可能性があるため、_udpClientのClose後にnull代入
+        _udpClient = null;
         _thread?.Join(1000);
         MainProcess.WriteLog("UDPエコーサーバ停止");
     }
