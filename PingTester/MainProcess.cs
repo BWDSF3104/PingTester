@@ -153,6 +153,16 @@ namespace PingTester
                             settings.GIPStr = externalEP.Address.ToString();
                             // [2026-04-23 追加] STUN 取得の外部エンドポイントを UI 表示用に保持
                             settings.ExternalEPStr = externalEP.ToString();
+
+                            // [2026-04-30 追加] Symmetric NAT 検出時に警告ポップアップを表示する
+                            if (settings.UdpServer.IsSymmetricNat)
+                            {
+                                System.Windows.MessageBox.Show(
+                                    "このネットワークは Symmetric NAT です。\nUDP ホールパンチングが機能しないため、相手との通信ができない可能性があります。",
+                                    "Symmetric NAT を検出",
+                                    System.Windows.MessageBoxButton.OK,
+                                    System.Windows.MessageBoxImage.Warning);
+                            }
                         });
                     }
                     else

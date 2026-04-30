@@ -21,6 +21,9 @@ public class UdpPingServer
         ? ((IPEndPoint)_udpClient.Client.LocalEndPoint).Port
         : 0;
 
+    // [2026-04-30 追加] Symmetric NAT 検出フラグ。GetExternalEndPointAsync() 完了後に確定する
+    public bool IsSymmetricNat { get; private set; } = false;
+
     // Ping レスポンスパケットを ServerLoop から Ping() へ渡すためのキューとシグナル
     private readonly ConcurrentQueue<byte[]> _pingResponseQueue = new ConcurrentQueue<byte[]>();
     private readonly SemaphoreSlim _pingResponseSignal = new SemaphoreSlim(0);
@@ -222,6 +225,8 @@ public class UdpPingServer
 
         // [2026-04-19 追加] 外部ポートが全サーバで一致するか確認してNATタイプを判定
         bool isSymmetric = results.Select(r => r.Port).Distinct().Count() > 1;
+        // [2026-04-30 追加] 判定結果をプロパティに保持し、呼び出し元から参照できるようにする
+        IsSymmetricNat = isSymmetric;
         if (isSymmetric)
         {
             MainProcess.WriteLog("⚠️ [NAT判定] Symmetric NAT を検出。ホールパンチングは機能しません。");
