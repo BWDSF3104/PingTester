@@ -118,6 +118,18 @@ namespace PingTester
             }
         }
 
+        // [2026-04-23 追加] MQTT リトライ回数変更ボタンハンドラ
+        private void MqttRetryCountChangeButton_Click(object sender, RoutedEventArgs e)
+        {
+            PortSetting portSetting = new PortSetting() { Min = 0, Max = 10 };
+            portSetting.ShowDialog();
+            if (portSetting.SettingFinished)
+            {
+                settings.MqttRetryCount = portSetting.Port;
+                CallSaveSetting();
+            }
+        }
+
         // [2026-04-23 追加] RoomId/MyName 変更後に MQTT を再接続するボタンハンドラ
         private async void ReconnectButton_Click(object sender, RoutedEventArgs e)
         {

@@ -106,6 +106,22 @@ namespace PingTester
         // [2026-04-18 追加] MQTT シグナリングサービス
         public SignalingService SignalingService { get; set; }
 
+        // [2026-04-23 追加] MQTT 初回接続失敗時のリトライ回数（Settings.xml で設定）
+        private int _MqttRetryCount = 3;
+        public int MqttRetryCount
+        {
+            get => _MqttRetryCount;
+            set { _MqttRetryCount = value; RaisePropertyChanged(nameof(MqttRetryCount)); }
+        }
+
+        // [2026-04-23 追加] MQTT 接続状態の UI 表示用テキスト
+        private string _MqttStatusText = "未接続";
+        public string MqttStatusText
+        {
+            get => _MqttStatusText;
+            set { _MqttStatusText = value; RaisePropertyChanged(nameof(MqttStatusText)); }
+        }
+
         // [2026-04-18 追加] MQTT ルームID（全員共通の固定値。Settings.xml で管理）
         private string _RoomId = "pingtester-default-room";
         public string RoomId

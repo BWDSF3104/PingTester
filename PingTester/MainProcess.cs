@@ -45,6 +45,11 @@ namespace PingTester
                 if (!string.IsNullOrEmpty(myName)) settings.MyName = myName;
                 WriteLog("【設定ファイル】読込MyName:" + settings.MyName);
 
+                // [2026-04-23 追加] MqttRetryCount を読み込み
+                if (int.TryParse(element.Element("MqttRetryCount")?.Value, out int mqttRetry) && mqttRetry >= 0)
+                    settings.MqttRetryCount = mqttRetry;
+                WriteLog("【設定ファイル】読込MqttRetryCount:" + settings.MqttRetryCount);
+
                 WriteLog("【設定ファイル】読込Ping送信回数:" + send);
 
                 // [2026-04-23 修正] IPAndNames は MQTT 自動取得のため起動時は空リスト
@@ -175,11 +180,23 @@ namespace PingTester
                     settings.SignalingService = new SignalingService();
                     settings.SignalingService.OnPortInfoReceived += (name, portInfo) =>
                         HandlePortInfoReceived(settings, name, portInfo);
-                    await settings.SignalingService.Start(settings.RoomId, settings.MyName);
+
+                    // [2026-04-23 追加] リトライ回数を Settings から取得し、
+                    //                   ステータス変化を MqttStatusText に反映する
+                    await settings.SignalingService.Start(
+                        settings.RoomId,
+                        settings.MyName,
+                        retryCount: settings.MqttRetryCount,
+                        retryIntervalMs: 3000,
+                        onStatusChanged: msg =>
+                            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                                settings.MqttStatusText = msg));
                 }
                 catch (Exception ex)
                 {
                     WriteLog("MQTT: 接続失敗: " + ex.Message);
+                    System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                        settings.MqttStatusText = "MQTT: 接続失敗");
                 }
 
                 // ④ 外部エンドポイントが確定したら MQTT で送信
@@ -245,11 +262,22 @@ namespace PingTester
                 settings.SignalingService = new SignalingService();
                 settings.SignalingService.OnPortInfoReceived += (name, portInfo) =>
                     HandlePortInfoReceived(settings, name, portInfo);
-                await settings.SignalingService.Start(settings.RoomId, settings.MyName);
+
+                // [2026-04-23 追加] 再接続時もリトライ設定・ステータスコールバックを適用
+                await settings.SignalingService.Start(
+                    settings.RoomId,
+                    settings.MyName,
+                    retryCount: settings.MqttRetryCount,
+                    retryIntervalMs: 3000,
+                    onStatusChanged: msg =>
+                        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                            settings.MqttStatusText = msg));
             }
             catch (Exception ex)
             {
                 WriteLog("MQTT: 再接続失敗: " + ex.Message);
+                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                    settings.MqttStatusText = "MQTT: 接続失敗");
                 return;
             }
 
@@ -585,6 +613,8 @@ namespace PingTester
                 // [2026-04-18 追加] RoomId と MyName を保存
                 sw.WriteLine(string.Format("  <RoomId>{0}</RoomId>", settings.RoomId));
                 sw.WriteLine(string.Format("  <MyName>{0}</MyName>", settings.MyName));
+                // [2026-04-23 追加] MqttRetryCount を保存
+                sw.WriteLine(string.Format("  <MqttRetryCount>{0}</MqttRetryCount>", settings.MqttRetryCount));
                 sw.WriteLine("</Main>");
                 sw.Dispose();
             }

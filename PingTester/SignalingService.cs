@@ -32,17 +32,20 @@ public class SignalingService
 
     /// <summary>
     /// MQTT ブローカーに接続し、指定ルームのトピックをワイルドカード購読する。
+    /// 接続失敗時は retryCount 回リトライする（間隔 retryIntervalMs ms）。
     /// </summary>
     /// <param name="roomId">ルームID。全員共通の固定文字列を想定。</param>
     /// <param name="myName">自分の表示名。受信側の IPAndNames に反映される。</param>
-    public async Task Start(string roomId, string myName)
+    /// <param name="retryCount">接続失敗時のリトライ回数（0=リトライなし）</param>
+    /// <param name="retryIntervalMs">リトライ間隔(ms)</param>
+    /// <param name="onStatusChanged">接続状態変化時に呼ばれるコールバック（UI 表示用）</param>
+    // [2026-04-23 追加] retryCount / retryIntervalMs / onStatusChanged パラメータを追加
+    public async Task Start(string roomId, string myName,
+        int retryCount = 0, int retryIntervalMs = 3000,
+        Action<string> onStatusChanged = null)
     {
         _roomId = roomId;
         _myName = myName;
-        // 送信者識別用に起動ごとに一意なIDを生成
-        // [2026-04-18 修正] 起動ごとにランダム生成していた _senderId を MAC アドレス＋マシン名の固定値に変更
-        //                   異常終了後の再起動時に同じ _senderId で retain を上書きでき
-        //                   自分自身のメッセージを正しく除外できる
         _senderId = GenerateSenderId();
 
         var factory = new MqttFactory();
@@ -58,10 +61,40 @@ public class SignalingService
         // 受信ハンドラを登録
         _mqttClient.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
 
-        await _mqttClient.ConnectAsync(options, CancellationToken.None);
+        // [2026-04-23 追加] リトライループ
+        int attempt = 0;
+        while (true)
+        {
+            try
+            {
+                string statusMsg = attempt == 0
+                    ? "MQTT: 接続中..."
+                    : $"MQTT: 再試行中 ({attempt}/{retryCount})...";
+                MainProcess.WriteLog(statusMsg);
+                onStatusChanged?.Invoke(statusMsg);
+
+                await _mqttClient.ConnectAsync(options, CancellationToken.None);
+                break; // 接続成功
+            }
+            catch (Exception ex)
+            {
+                if (attempt >= retryCount)
+                {
+                    // リトライ上限到達 → 例外を上位に伝播
+                    string failMsg = $"MQTT: 接続失敗（{retryCount + 1}回試行）";
+                    MainProcess.WriteLog(failMsg + " : " + ex.Message);
+                    onStatusChanged?.Invoke(failMsg);
+                    throw;
+                }
+                attempt++;
+                string retryMsg = $"MQTT: 接続失敗。{retryIntervalMs / 1000}秒後に再試行 ({attempt}/{retryCount})...";
+                MainProcess.WriteLog(retryMsg + " : " + ex.Message);
+                onStatusChanged?.Invoke(retryMsg);
+                await Task.Delay(retryIntervalMs);
+            }
+        }
 
         // ルーム内の全参加者トピックをワイルドカードで購読（QoS1）
-        // "+" は単一レベルのワイルドカード。例: pingtester/room/myroom/+/info
         string subscribeTopic = BuildSubscribeTopic();
         await _mqttClient.SubscribeAsync(
             new MqttClientSubscribeOptionsBuilder()
@@ -69,7 +102,9 @@ public class SignalingService
                 .Build(),
             CancellationToken.None);
 
-        MainProcess.WriteLog($"MQTT: 接続完了 broker={BrokerHost}:{BrokerPort} roomId={roomId} name={myName}");
+        string connectedMsg = $"MQTT: 接続完了 broker={BrokerHost}:{BrokerPort} roomId={roomId} name={myName}";
+        MainProcess.WriteLog(connectedMsg);
+        onStatusChanged?.Invoke("MQTT: 接続済み");
     }
 
     /// <summary>

@@ -48,6 +48,17 @@
                     <TextBlock Text="自分の名前" Margin="0,0,5,0" VerticalAlignment="Center"/>
                     <TextBox Text="{Binding MyName, UpdateSourceTrigger=PropertyChanged}" Width="150"/>
                 </StackPanel>
+                <!-- MQTT 接続状態 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <TextBlock Text="MQTT状態: " VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding MqttStatusText}" VerticalAlignment="Center" FontWeight="Bold"/>
+                </StackPanel>
+                <!-- MQTT リトライ回数 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="MQTTリトライ回数" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding MqttRetryCount}" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                    <Button Content="変更" Click="MqttRetryCountChangeButton_Click"/>
+                </StackPanel>
                 <!-- MQTT 再接続（RoomId/MyName 変更後に押す） -->
                 <Button x:Name="reconnectButton" Content="MQTT再接続" Margin="0,0,0,10" Click="ReconnectButton_Click"/>
 
