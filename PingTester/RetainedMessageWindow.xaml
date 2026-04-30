@@ -1,0 +1,44 @@
+﻿<!-- 新規作成: retain メッセージ管理ウィンドウ -->
+<Window x:Class="PingTester.RetainedMessageWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Retain メッセージ管理" Height="400" Width="600"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ヘッダ情報 -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="ルームID: " VerticalAlignment="Center"/>
+                <TextBlock x:Name="roomIdLabel" FontWeight="Bold" VerticalAlignment="Center"/>
+                <Button x:Name="reloadButton" Content="再読み込み" Margin="15,0,0,0"
+                        Click="ReloadButton_Click" Width="90"/>
+            </StackPanel>
+            <TextBlock x:Name="statusLabel" Foreground="Gray" Margin="0,4,0,0" FontSize="11"/>
+        </StackPanel>
+
+        <!-- retain メッセージ一覧 -->
+        <ListView x:Name="retainListView" Grid.Row="1">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="送信者名" DisplayMemberBinding="{Binding Name}" Width="140"/>
+                    <GridViewColumn Header="IP:Port" DisplayMemberBinding="{Binding PortInfo}" Width="180"/>
+                    <GridViewColumn Header="トピック" DisplayMemberBinding="{Binding Topic}" Width="220"/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <!-- ボタン行 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button x:Name="deleteSelectedButton" Content="選択削除" Width="90" Margin="0,0,8,0"
+                    Click="DeleteSelectedButton_Click"/>
+            <Button x:Name="deleteAllButton" Content="全削除" Width="90"
+                    Click="DeleteAllButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

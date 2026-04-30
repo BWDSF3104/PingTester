@@ -153,5 +153,13 @@ namespace PingTester
         {
             MainProcess.SwitchToThisWindow(GetHandle(), true);
         }
+
+        // [2026-04-23 追加] retain メッセージ管理ウィンドウを開く
+        private void RetainManageButton_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new RetainedMessageWindow(settings.RoomId);
+            window.Owner = this;
+            window.ShowDialog();
+        }
     }
 }

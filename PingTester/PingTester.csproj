@@ -173,6 +173,9 @@
     <Compile Include="PortSetting.xaml.cs">
       <DependentUpon>PortSetting.xaml</DependentUpon>
     </Compile>
+    <Compile Include="RetainedMessageWindow.xaml.cs">
+      <DependentUpon>RetainedMessageWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Settings.cs" />
     <Compile Include="SignalingService.cs" />
     <Compile Include="StunClient.cs" />
@@ -199,6 +202,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PortSetting.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="RetainedMessageWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

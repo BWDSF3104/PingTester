@@ -73,6 +73,9 @@
                     <Button x:Name="modButton" Content="変更" IsEnabled="False" Click="ModButton_Click"/>
                 </StackPanel>
                 <CheckBox x:Name="autoSaveEnable" Content="設定自動保存" IsChecked="True" Margin="0,0,0,10"/>
+                <!-- [2026-04-23 追加] ルーム内の残留 retain メッセージを管理する画面を開く -->
+                <Button x:Name="retainManageButton" Content="Retain管理" Margin="0,0,0,5"
+                        Click="RetainManageButton_Click"/>
                 <Button x:Name="startButton" Content="開始" Click="StartButton_Click" IsEnabled="{Binding PossibleExecute}"/>
             </StackPanel>
         </Grid>
