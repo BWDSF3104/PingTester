@@ -92,9 +92,11 @@
         </Grid>
 
         <Grid Grid.Column="1">
+            <!-- [2026-05-01 修正] GridSplitter 追加のため Row 定義を3行に変更 -->
             <Grid.RowDefinitions>
-                <RowDefinition/>
-                <RowDefinition Height="150"/>
+                <RowDefinition Height="2*"/>
+                <RowDefinition Height="5"/>
+                <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <ListView DataContext="{Binding IPAndNames}" ItemsSource="{Binding Mode=OneWay}">
                 <ListView.View>
@@ -112,7 +114,17 @@
                 </ListView.View>
             </ListView>
 
-            <Grid Grid.Row="1">
+            <!-- [2026-05-01 追加] 結果リストとログエリアの境界をドラッグでリサイズするスプリッタ -->
+            <GridSplitter Grid.Row="1"
+                          Height="5"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center"
+                          ResizeDirection="Rows"
+                          Background="#FFCCCCCC"
+                          ShowsPreview="True"/>
+
+            <!-- [2026-05-01 修正] GridSplitter 追加により Grid.Row を 1 → 2 に変更 -->
+            <Grid Grid.Row="2">
                 <!-- [2026-04-12 追加] ログ表示領域。MainProcess.LogEntries に新しいログが先頭挿入される -->
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
