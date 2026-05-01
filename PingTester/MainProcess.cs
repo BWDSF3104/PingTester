@@ -57,27 +57,8 @@ namespace PingTester
                 settings.IPAndNames = new System.Collections.ObjectModel.ObservableCollection<IPAndName>();
                 WriteLog("【設定ファイル】IPリストは起動時空（MQTT自動取得）");
 
-                // [2026-04-12 修正] 未使用の GetRequest 呼び出しを削除
-                Console.WriteLine("ルータ探索中...");
-                WriteLog("ルータ探索中...");
-
-                UPnPWanService napt = UPnPWanService.FindUPnPWanService();
-
-                WriteLog("ルータ探索終了");
-
-                IPAddress extIP = null;
-                if (napt != null)
-                {
-                    WriteLog("ルータ情報取得成功");
-                    settings.Napt = napt;
-                    extIP = napt.GetExternalIPAddress();
-                    settings.GIPStr = extIP?.ToString();
-                    WriteLog("【ルータ情報】グローバルIP:" + extIP);
-                }
-                else
-                {
-                    WriteLog("ルータ情報取得失敗");
-                }
+                // [2026-05-01 修正] ルータ探索を ReadSettings から削除
+                // STUN成功時は不要、失敗時のみ AddUdpPortMapping 内で実施する
             }
             catch (Exception ex)
             {
@@ -366,8 +347,29 @@ namespace PingTester
         {
             try
             {
-                IPAddress localIP = settings.Napt?.GetLocalIPAddress();
-                if (settings.Napt == null || localIP == null) return;
+                // [2026-05-01 修正] STUN失敗時のみ呼ばれるため、ここでルータ探索を実施する
+                //                   ReadSettings では探索しなくなったため Napt は常に未設定で来る
+                WriteLog("UPnP: ルータ探索中...");
+                UPnPWanService napt = UPnPWanService.FindUPnPWanService();
+                if (napt == null)
+                {
+                    WriteLog("UPnP: ルータ未検出。ポートマッピングをスキップ");
+                    return;
+                }
+                settings.Napt = napt;
+
+                // [2026-05-01 追加] STUN失敗時のグローバルIP取得（UPnPフォールバック）
+                //                   STUN成功時は StartWaitPing 内で GIPStr が設定済みのため不要
+                IPAddress extIP = napt.GetExternalIPAddress();
+                if (extIP != null)
+                {
+                    System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                        settings.GIPStr = extIP.ToString());
+                    WriteLog("【UPnP】グローバルIP:" + extIP);
+                }
+
+                IPAddress localIP = napt.GetLocalIPAddress();
+                if (localIP == null) return;
 
                 // [2026-04-23 修正] settings.Port 廃止のため UdpServer.LocalPort を使用
                 int localPort = settings.UdpServer?.LocalPort ?? 0;

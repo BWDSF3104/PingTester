@@ -165,10 +165,15 @@ public class UdpPingServer
             {
                 MainProcess.WriteLog($"  [STUN] {host}:{port} に接続試行...");
 
-                IPAddress[] addresses = await Dns.GetHostAddressesAsync(host);
+                // [2026-05-01 修正] DNS解決結果をIPv4のみにフィルタ
+                //                   UdpClient がIPv4バインドのため IPv6 宛て送信は
+                //                   SocketException（プロトコル互換性なし）になる
+                IPAddress[] addresses = (await Dns.GetHostAddressesAsync(host))
+                    .Where(a => a.AddressFamily == AddressFamily.InterNetwork)
+                    .ToArray();
                 if (addresses.Length == 0)
                 {
-                    MainProcess.WriteLog($"  [STUN] ⚠️  DNS解決失敗: {host}");
+                    MainProcess.WriteLog($"  [STUN] ⚠️  DNS解決失敗（IPv4アドレスなし）: {host}");
                     continue;
                 }
                 MainProcess.WriteLog($"  [STUN] DNS解決成功: {host} → {addresses[0]}");
